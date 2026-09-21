@@ -5,10 +5,15 @@ No browser, no preview, no "Save as PDF then find the file then open it then hit
 
 - **Status:** spec. No code in this repo yet — build happens in a follow-up goal.
 - **Target:** VS Code extension (works in Cursor unchanged).
-- **Language:** TypeScript. **No Python.**
+- **Language:** TypeScript for the extension. **Python is not used at any point** — not in
+  the extension, not in the build, not in the tests. It cannot be assumed to exist on a
+  user's machine, and on the platforms this is aiming at it often won't. The only non-TS
+  code is the macOS Swift shim (§7), which is an OS framework wrapper, not a runtime
+  dependency.
 - **Alpha platform:** macOS. Windows/Linux are additive classes, not edits.
 - **Author of the original POC:** Jaymeh + Kai (Hermes). This spec ports a *proven* pipeline, not a guess.
-- **Tests:** TypeScript, golden HTML fixtures. **No Python** anywhere in this repo.
+- **Tests:** TypeScript, golden HTML fixtures. **Python is not used anywhere** — not at
+  runtime, not at build, not at test. It may not exist on a user's machine.
 
 ---
 
@@ -38,17 +43,21 @@ A working pipeline was built and **proven with real paper** on 2026-09-21 (HP Sm
 .md  ->  styled HTML  ->  PDF (offscreen WebKit)  ->  lp  ->  printer
 ```
 
-POC line counts, so the size of the port is honest:
+POC line counts, so the size of the port is honest. **The POC was a proof, not a
+foundation** — every line of it is rewritten in TypeScript or dropped. Nothing from it
+ships, and nothing from it is needed to build or test this project:
 
-| File | Lines | Ports to |
+| POC file | Lines | What happens to it |
 |---|---|---|
-| `mdprint.py` — markdown → HTML renderer | 256 | TypeScript, in-extension |
-| `mdprint.css` — the print stylesheet | 294 | TypeScript string constant, verbatim |
-| `printplatform.py` — the printer interface | 342 | TypeScript interfaces + one class per OS |
-| `mdprint_cli.py` — the CLI rail | 193 | absorbed into the extension's commands |
-| `shim.swift` — offscreen HTML → PDF | 67 | **the only genuinely native piece** |
+| `mdprint.py` — markdown → HTML renderer | 256 | **rewritten** in TypeScript |
+| `mdprint.css` — the print stylesheet | 294 | **copied verbatim** into a TS string constant |
+| `printplatform.py` — the printer interface | 342 | **rewritten** as TS interfaces + one class per OS |
+| `mdprint_cli.py` — the CLI rail | 193 | **absorbed** into the extension's commands |
+| `shim.swift` — offscreen HTML → PDF | 67 | **rewritten** as Swift for macOS (see §7) |
 
-**~1,150 lines total, of which ~1,080 port mechanically.**
+**~1,150 lines of POC, of which only the CSS is copied rather than rewritten.** That is the
+whole reason this port is low-risk: the *logic* is proven on real paper, and logic survives
+a language change. The POC itself is discarded.
 
 ### The five things the POC learned the hard way
 
@@ -269,8 +278,7 @@ Later steps must not require redoing earlier ones. Each step ends in something r
 2. **Port the CSS.** `mdprint.css` → a TS string constant, verbatim. Ends: a snapshot test
    asserting the `@page` block and the four print rules survive.
 3. **Port the renderer.** `mdprint.py` → TypeScript. Ends: **`npm test` green against the
-   golden HTML fixtures** (see §9a). The fixtures replace the "compare to the Python output
-   at build time" idea — the Python is not a runtime or build dependency.
+   golden HTML fixtures** (see §9a).
 4. **The platform interface + `MacPlatform`.** `detect()`, `listPrinters()`, `print()`,
    `openPrintDialog()`, `PrintError`. Ends: `mdprint: Print` produces real paper.
 5. **Unsaved buffers.** Render from the live document, not disk. Ends: print a dirty buffer.
@@ -280,7 +288,7 @@ Later steps must not require redoing earlier ones. Each step ends in something r
 
 ---
 
-## 9a. Test strategy — golden fixtures, zero Python at test time
+## 9a. Test strategy — golden fixtures
 
 The port's risk is not "does it compile", it is **"did the TS renderer quietly drift from
 the behaviour we proved on real paper"**. So the tests are built around **golden HTML
@@ -288,12 +296,12 @@ fixtures**: known markdown in, known-good HTML out, committed to the repo.
 
 ### The rule that makes this work
 
-**The Python code is not a dependency of this repo — not at build, not at test, not at
-runtime.** The Python produced the fixtures *once*, at port time. After that the fixtures
-are the source of truth and the Python is discarded.
+**Python is not used anywhere in this project** — not at runtime, not at build, not at
+test. It cannot be assumed present on a user's machine, so nothing may depend on it.
 
-This matters because otherwise we'd ship a TypeScript extension that can't run its own
-tests without a Python interpreter, which would be absurd.
+The POC's HTML output was captured **once**, by hand, and committed as fixtures. From then
+on **the fixtures are the source of truth.** They are plain text files in the repo; reading
+them requires nothing but Node.
 
 ```
 test/fixtures/
