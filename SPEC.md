@@ -8,6 +8,7 @@ No browser, no preview, no "Save as PDF then find the file then open it then hit
 - **Language:** TypeScript. **No Python.**
 - **Alpha platform:** macOS. Windows/Linux are additive classes, not edits.
 - **Author of the original POC:** Jaymeh + Kai (Hermes). This spec ports a *proven* pipeline, not a guess.
+- **Tests:** TypeScript, golden HTML fixtures. **No Python** anywhere in this repo.
 
 ---
 
@@ -206,7 +207,7 @@ Right-clicking a file in the Explorer obviously uses that file from disk instead
 
 ---
 
-## 7. The one native piece
+## 7. The one native piece — the shim
 
 Everything ports to TypeScript **except** HTML → PDF. There is no HTML→PDF engine in Node
 that does a good job without dragging in a browser.
@@ -214,16 +215,30 @@ that does a good job without dragging in a browser.
 The POC solved this the right way: **macOS's own web engine, offscreen.**
 
 - A ~67-line Swift binary using `WKWebView` + `createPDF`
-- No window, no tab, no browser UI, no Chrome dependency
-- Built once via `xcrun swiftc` (Xcode command-line tools — already present on any Mac
-  with dev tools, and the extension targets devs)
-- Loads from **`file://`** — `data:` URLs *hang* the web view (learned the hard way)
+- No window, no tab, no browser UI, **no Chrome dependency**
+- The browser is real but *invisible* — the engine Safari uses, with no UI attached
+- This answers the original objection (*"the idea that we open up a web browser just to
+  print is a bit meh"*). The detour is gone; the engine stayed.
+- Loads from **`file://`** — `data:` URLs *hang* the web view (learned the hard way, exit
+  124 with no error)
 - Must **explicitly set page size and margins** from the document's `@page` (see §2.1)
 
-**Question the build must answer:** do we ship the Swift binary prebuilt in the VSIX, or
-build it on first run? Building on first run keeps the extension tiny and avoids shipping
-a binary we can't notarise per-architecture; it costs a few seconds once. **Recommendation:
-build on first run, cache it, and fail with one honest line if Xcode CLT is missing.**
+**Why it can't be TypeScript:** the Node alternatives all mean shipping a browser. That's a
+~150 MB dependency for a print button — against the fewest-dependencies rule. So this is the
+one seam where we stop fighting the language and use the OS.
+
+**And it's why alpha is macOS-only.** Not a limitation being dodged — just the piece that
+has to be written per OS. Windows would be the same idea via Edge WebView2: same shape,
+different class, no change above the interface.
+
+**Question the build must answer:** prebuilt binary in the VSIX, or build on first run?
+Building on first run keeps the extension tiny and avoids shipping a binary we can't
+notarise per architecture; it costs a few seconds once. **Recommendation: build on first
+run, cache it, and fail with one honest line if Xcode CLT is missing.**
+
+**Test coverage:** deliberately excluded from unit tests. Mocking WKWebView tests the mock.
+It's covered by the manual checklist in §9a instead.
+
 
 ---
 
@@ -253,14 +268,95 @@ Later steps must not require redoing earlier ones. Each step ends in something r
    Ends: command appears in the palette and prints a line to the output channel.
 2. **Port the CSS.** `mdprint.css` → a TS string constant, verbatim. Ends: a snapshot test
    asserting the `@page` block and the four print rules survive.
-3. **Port the renderer.** `mdprint.py` → TypeScript. Ends: byte-comparable HTML against the
-   Python output for the same input (this is the port's safety net).
+3. **Port the renderer.** `mdprint.py` → TypeScript. Ends: **`npm test` green against the
+   golden HTML fixtures** (see §9a). The fixtures replace the "compare to the Python output
+   at build time" idea — the Python is not a runtime or build dependency.
 4. **The platform interface + `MacPlatform`.** `detect()`, `listPrinters()`, `print()`,
    `openPrintDialog()`, `PrintError`. Ends: `mdprint: Print` produces real paper.
 5. **Unsaved buffers.** Render from the live document, not disk. Ends: print a dirty buffer.
 6. **Options screen + settings.** QuickPick flow + global per-printer storage. Ends: choice
    is remembered across restarts.
 7. **Dialog door.** `Print with options…`. Ends: PDF handed to the OS dialog.
+
+---
+
+## 9a. Test strategy — golden fixtures, zero Python at test time
+
+The port's risk is not "does it compile", it is **"did the TS renderer quietly drift from
+the behaviour we proved on real paper"**. So the tests are built around **golden HTML
+fixtures**: known markdown in, known-good HTML out, committed to the repo.
+
+### The rule that makes this work
+
+**The Python code is not a dependency of this repo — not at build, not at test, not at
+runtime.** The Python produced the fixtures *once*, at port time. After that the fixtures
+are the source of truth and the Python is discarded.
+
+This matters because otherwise we'd ship a TypeScript extension that can't run its own
+tests without a Python interpreter, which would be absurd.
+
+```
+test/fixtures/
+  <case>.md          input markdown
+  <case>.html        the expected rendered HTML   <- the golden
+```
+
+A fixture is only ever regenerated **deliberately, with a reason, and reviewed** — never
+to make a red test go green. If the diff isn't understood, the fixture doesn't change.
+
+### Fixture cases — each one exists because it broke once
+
+One fixture per line in §2, so every bug we paid for in paper has a test standing over it:
+
+| Fixture | Guards against |
+|---|---|
+| `basic.md` | the whole pipeline, sanity |
+| `frontmatter.md` | YAML title parsing, title fallback from filename |
+| `page-width.md` | **the right-edge clip** — long paragraphs must wrap |
+| `code-bleed.md` | code blocks must not run off the page |
+| `mixed-blocks.md` | headings, lists, tables, blockquotes in one doc |
+| `details.md` | collapsed `<details>` must not print empty |
+| `table-wide.md` | tables stay put, cells wrap |
+
+### Test layers
+
+1. **Unit — renderer.** `render(md)` vs fixture HTML. Plain string compare; failures print
+   a diff so a drift is readable, not a boolean.
+2. **Unit — CSS invariants.** Assert the four earned rules are present **as strings** in the
+   compiled CSS constant, with a comment saying *why* each is load-bearing:
+   - the `@page` block exists (page size + margins)
+   - `pre` wraps under `@media print` (code bleed)
+   - `display:block` under `@media print` (page-1-only bug)
+   - light tokens pinned in `@media print :root` (dark-mode bug)
+
+   This is a cheap test that catches the single most likely refactor accident: someone
+   "tidying" the stylesheet and deleting the fix.
+3. **Unit — `PrintJob` → argv.** Pure function, no printer. Asserts the **faithful
+   defaults** rule: when `duplex` is unset, the built argv **contains no `sides` flag at
+   all** (so the printer's own default wins — see §4).
+4. **Unit — `detect()`.** Returns the platform class, given the test platform. This is the
+   seam's own test: it proves a second class could be selected.
+
+### Deliberately NOT unit-tested
+
+- **The Swift shim.** It's ~67 lines wrapping OS frameworks; mocking WKWebView tests the
+  mock. It's covered by the manual checklist instead.
+- **Real printing.** Tests never send a job to a printer. Per the no-wasted-paper rule, a
+  dry run answers everything a test could.
+
+### Manual checklist — the part CI can't prove
+
+Run before any alpha tag, on a real Mac with real paper:
+
+1. Print a document → sheet comes out A4, not Letter.
+2. Check the **right margin** — nothing clipped.
+3. Print a 3-page doc → all three pages, page 3 not blank.
+4. Print a doc with a code block → code wraps, doesn't bleed.
+5. Print with dark mode enabled → sheet is light, not inverted.
+6. Print a **dirty (unsaved)** buffer → prints the edited text.
+7. Try a printer needing auth → **fails loud and specific**, queue not left stalled.
+8. Ask for duplex on a single-sided printer → refuses explicitly, doesn't silently ignore.
+
 
 ---
 
