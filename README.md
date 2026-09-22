@@ -56,8 +56,13 @@ runtime dependency at all.
 npx @vscode/vsce package
 ```
 
-That writes `mdprint-0.0.1.vsix` (21 files, ~61 KB). No Marketplace account, no signing,
+That writes `mdprint-0.0.1.vsix` (23 files, ~62 KB). No Marketplace account, no signing,
 no review — for personal use you install the file directly.
+
+You should **not** see a license prompt. If you do, a `LICENSE` file has gone missing —
+add it back rather than answering `y`. `--skip-license` silences the warning by shipping
+an unlicensed package, which is the opposite of what you want. `packaging.test.ts` fails
+if the file disappears or if `.vscodeignore` starts excluding it.
 
 ### 4. Install into VS Code or Cursor
 
