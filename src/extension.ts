@@ -142,20 +142,24 @@ async function runPrint(
     // ---- the dialog door: render, hand off, get out of the way -----------
     if (withDialog) {
       progress.report('handing the PDF to the print dialog');
-      const summary = await backend.printWithDialog(rendered.pdfPath);
-      log(summary);
 
-      // THE FILE MUST OUTLIVE US. Handing over `rendered.pdfPath` and then
-      // letting the `finally` below run is what produced
+      // THE FILE MUST OUTLIVE US, AND THAT MEANS RELEASING IT *BEFORE* OPENING
+      // IT. Handing `rendered.pdfPath` — the scratch path — to Preview and only
+      // releasing (copying) it afterwards still lets `finally` delete the
+      // scratch dir out from under the file Preview actually opened: `open -g
+      // -a Preview` returns as soon as the handoff is made (measured at 58ms),
+      // long before Preview has finished reading the file, and the copy taken
+      // after that point protects the copy, not the original Preview is
+      // holding. That produced
       //   "The file … couldn't be opened because there is no such file."
-      // in the user's Preview. `open -g -a Preview` returns the moment the
-      // handoff is made, so the scratch dir was deleted while Preview was
-      // still opening the file — and a print job sent to the dialog was
-      // deleted before the dialog had read it at all. Moving the PDF
-      // somewhere that isn't swept is the fix; see release() for why it is a
-      // copy and not an exemption flag.
+      // Releasing first and handing Preview the released path is what actually
+      // closes the race: the copy exists and is what Preview opens, so nothing
+      // the `finally` deletes is a file any other program has a reference to.
       const handedOver = await release(rendered.pdfPath);
       log(`Released the PDF to ${handedOver} — it outlives this run by design.`);
+
+      const summary = await backend.printWithDialog(handedOver);
+      log(summary);
 
       void vscode.window.showInformationMessage(
         rendered.dirty

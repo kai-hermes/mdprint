@@ -232,11 +232,17 @@ test('a long-abandoned checkout is eventually reclaimed', async () => {
   }
 });
 
-test('the dialog door hands over a path that is not the scratch path', () => {
-  // Reachability of the fix itself. The dialog door calls release() and hands
-  // Preview the RESULT; handing over rendered.pdfPath again is the bug.
+test('the dialog door releases the PDF before opening it, and opens the released copy', () => {
+  // Reachability of the fix itself, and the part the first draft of this fix
+  // got backwards: release() must run BEFORE backend.printWithDialog() is
+  // called, and printWithDialog must be given `handedOver`, not
+  // `rendered.pdfPath`. Releasing after the handoff protects a copy that
+  // Preview never opened — Preview is still holding the scratch path, and
+  // `finally` deletes that out from under it. That is the literal bug this
+  // file exists to catch, reproduced by a well-intentioned fix that released
+  // too late.
   const source = read('src/extension.ts');
-  const door = slice(source, 'if (withDialog) {', 1200);
+  const door = slice(source, 'if (withDialog) {', 1400);
 
   assert.match(
     door,
@@ -245,17 +251,21 @@ test('the dialog door hands over a path that is not the scratch path', () => {
       'early from inside a try/finally does not save the file, because the ' +
       'finally still deletes the directory'
   );
-  // Order, not just presence: release() must come after the handoff (the
-  // dialog has to be given a file that exists) and must be the last thing to
-  // touch the scratch PDF. What must NOT happen is the door ending without a
-  // release, which is what the user hit.
-  const handoffAt = door.indexOf('backend.printWithDialog(');
+  assert.match(
+    door,
+    /backend\.printWithDialog\(handedOver\)/,
+    'Preview must be opened on the RELEASED path, not rendered.pdfPath — ' +
+      'opening the scratch path and releasing afterwards protects a copy ' +
+      'nothing has opened, while the file Preview is actually displaying is ' +
+      'still deleted by the `finally`'
+  );
+  // Order: release() must come before the handoff, so the file `open -a
+  // Preview` is given already survives the run.
   const releaseAt = door.indexOf('await release(rendered.pdfPath)');
+  const handoffAt = door.indexOf('backend.printWithDialog(handedOver)');
   assert.ok(
-    handoffAt > 0 && releaseAt > handoffAt,
-    'the handoff happens first and the release follows it — but the release ' +
-      'must happen before the door returns, or the finally deletes the file ' +
-      'out from under the program that was just handed it'
+    releaseAt > 0 && handoffAt > releaseAt,
+    'release() must happen before printWithDialog() hands the file to Preview'
   );
   assert.match(
     door,
