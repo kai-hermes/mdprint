@@ -1,0 +1,22 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Right Edge Clip</title>
+<style>
+
+</style>
+</head>
+<body>
+<main>
+<h1>Right Edge Clip</h1>
+<p class="preamble">This fixture exists because content overran the RIGHT paper edge and got sliced off at the paper boundary. The cause was laying out at the full page width (595.3pt of content on a 595.3pt page) with no margin box reserved, so anything wider than the page simply ran off it.</p>
+<h2>A long unbroken line</h2>
+<p>AAAAAAAABBBBBBBBCCCCCCCCDDDDDDDDEEEEEEEEFFFFFFFFGGGGGGGGHHHHHHHHIIIIIIIIJJJJJJJJKKKKKKKKLLLLLLLLMMMMMMMN</p>
+<p>A very long URL that cannot wrap at a space: https://example.com/a/very/long/path/that/keeps/going/and/going/and/going/without/any/break/at/all/whatsoever/ok</p>
+<p>The fix is to inset the content box to the @page margins and rasterise the FULL page — never to shrink the page rect, which was the first attempt and produced 179.9mm paper instead of A4.</p>
+</main>
+<div class="page-footer"><span>Right Edge Clip</span><span class="pf-right">page-width.md &middot; 22 Sep 2026</span></div>
+</body>
+</html>

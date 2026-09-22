@@ -1,0 +1,9 @@
+node_modules/
+out/
+poc-reference/
+
+# Rendered output from the golden-fixture tests. Regenerated on every run;
+# committing it would create noise diffs and tempt someone to bless a bad render.
+.actual/
+*.vsix
+.DS_Store

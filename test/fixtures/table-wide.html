@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Wide Table</title>
+<style>
+
+</style>
+</head>
+<body>
+<main>
+<h1>Wide Table</h1>
+<p class="preamble">A table with more columns than comfortably fit should still be constrained to the content column rather than running past the right paper edge.</p>
+<table>
+<thead><tr>
+<th>Duplex</th>
+<th>PaperSize</th>
+<th>InputSlot</th>
+<th>MediaType</th>
+<th>PrintQuality</th>
+<th>Copies</th>
+<th>Collate</th>
+<th>FitToPage</th>
+<th>OutputBin</th>
+</tr></thead>
+<tbody>
+<tr><td>DuplexNoTumble</td><td>A4</td><td>Auto</td><td>Plain</td><td>Normal</td><td>1</td><td>True</td><td>False</td><td>Auto</td></tr>
+<tr><td>DuplexTumble</td><td>A4</td><td>Tray1</td><td>Plain</td><td>High</td><td>2</td><td>False</td><td>True</td><td>Auto</td></tr>
+<tr><td>None</td><td>A5</td><td>ManualFeed</td><td>Photo</td><td>Normal</td><td>1</td><td>True</td><td>False</td><td>Auto</td></tr>
+</tbody>
+</table>
+<p>And a ragged row, which must not shift the columns:</p>
+<table>
+<thead><tr>
+<th>One</th>
+<th>Two</th>
+<th>Three</th>
+</tr></thead>
+<tbody>
+<tr><td>only two</td><td></td><td></td></tr>
+</tbody>
+</table>
+</main>
+<div class="page-footer"><span>Wide Table</span><span class="pf-right">table-wide.md &middot; 22 Sep 2026</span></div>
+</body>
+</html>

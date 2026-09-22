@@ -1,0 +1,139 @@
+{
+  "name": "mdprint",
+  "displayName": "mdprint",
+  "description": "Markdown to paper, one click. Right-click a .md, get a properly typeset A4 sheet. No browser, no preview, no detour.",
+  "version": "0.0.1",
+  "publisher": "kai-hermes",
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "keywords": [
+    "markdown",
+    "print",
+    "pdf",
+    "paper",
+    "a4"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": [],
+  "contributes": {
+    "commands": [
+      {
+        "command": "mdprint.print",
+        "title": "Print",
+        "category": "mdprint"
+      },
+      {
+        "command": "mdprint.printWithOptions",
+        "title": "Print with options\u2026",
+        "category": "mdprint"
+      },
+      {
+        "command": "mdprint.choosePrinter",
+        "title": "Choose printer for this document\u2026",
+        "category": "mdprint"
+      },
+      {
+        "command": "mdprint.savePdf",
+        "title": "Save as PDF\u2026",
+        "category": "mdprint"
+      }
+    ],
+    "menus": {
+      "explorer/context": [
+        {
+          "command": "mdprint.print",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@1"
+        },
+        {
+          "command": "mdprint.printWithOptions",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@2"
+        }
+      ],
+      "editor/title/context": [
+        {
+          "command": "mdprint.print",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@1"
+        },
+        {
+          "command": "mdprint.printWithOptions",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@2"
+        }
+      ],
+      "commandPalette": [
+        {
+          "command": "mdprint.print",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdprint.printWithOptions",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdprint.choosePrinter",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdprint.savePdf",
+          "when": "editorLangId == markdown"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "mdprint",
+      "properties": {
+        "mdprint.defaultPrinter": {
+          "type": "string",
+          "default": "",
+          "scope": "window",
+          "markdownDescription": "Queue name to print to when the document doesn't name one. Leave empty to use the printer you last chose, then the system default."
+        },
+        "mdprint.printerSettings": {
+          "type": "object",
+          "default": {},
+          "scope": "window",
+          "markdownDescription": "Remembered print settings, keyed by printer name. Written by mdprint itself \u2014 a saved setting is a *default, never a lock*.",
+          "additionalProperties": {
+            "type": "object",
+            "properties": {
+              "duplex": {
+                "type": "string",
+                "enum": [
+                  "one-sided",
+                  "two-sided-long-edge",
+                  "two-sided-short-edge"
+                ]
+              },
+              "copies": {
+                "type": "number"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "scripts": {
+    "build": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "test": "npm run build && node --test \"out/test/**/*.test.js\"",
+    "lint": "tsc -p ./ --noEmit",
+    "vscode:prepublish": "npm run build",
+    "embed-shim": "node scripts/embed-shim.mjs",
+    "test:watch": "tsc -w -p ./ & node --test --watch \"out/test/**/*.test.js\"",
+    "extract-shim": "node scripts/extract-shim.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "@types/vscode": "^1.85.0",
+    "typescript": "^5.5.0"
+  }
+}
