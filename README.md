@@ -134,16 +134,27 @@ The choice is remembered per printer, so the second print is one click again.
 
 ### Per-item templates
 
-A template can be set four ways, and the richest one wins:
+A template can be set three ways, and the **last one that applies wins** — so the
+narrowest scope beats the widest:
 
 ```
-built-in  →  mdprint.themeFile  →  <doc>.mdprint.css  →  mdprint.theme
+built-in  →  mdprint.themeFile  →  <doc>.mdprint.css  →  mdprint.theme  →  live buffer
+  widest  ────────────────────────────────────────────────────────────────▶  narrowest
 ```
 
-- **`<doc>.mdprint.css`** beside the file — travels with the document through git.
-- **`mdprint.themeFile`** — one stylesheet for the whole workspace.
-- **`mdprint.theme`** — a live override, edited with *Customise template for this item…*.
+- **`mdprint.themeFile`** — one stylesheet for the whole workspace. Set it once
+  and every document inherits it.
+- **`<doc>.mdprint.css`** beside the file — this item's own template. Travels with
+  the document through git, and **wins over `themeFile`**.
+- **`mdprint.theme`** — inline CSS from settings, stacked after the file layers.
+- **The live buffer** — *Customise template for this item…* opens an unsaved CSS
+  scratchpad for the document in front of you. It sits on top of everything, so
+  you can experiment without touching any file. Print uses it as you type; close it
+  and it's gone.
 - A template **cannot** set paper size. That's stripped and logged; margins are honoured.
+
+Nothing needs rebuilding, repackaging or reinstalling to change how a document
+looks — edit a file, or open the live buffer, and print again.
 
 ### Settings
 
@@ -152,8 +163,10 @@ A saved setting is a **default, never a lock**. These exist:
 - `mdprint.defaultPrinter` — skip the picker when only one answer makes sense.
 - `mdprint.printerSettings` — per-printer memory of duplex and copies, written
   automatically when you choose them.
-- `mdprint.themeFile` — a workspace stylesheet, or empty for none.
-- `mdprint.theme` — a live style override, or empty for none.
+- `mdprint.themeFile` — a workspace-wide stylesheet, or empty for none. An item's own
+  `<doc>.mdprint.css` stacks after it and wins.
+- `mdprint.theme` — inline CSS for experiments, or empty for none. Sits on top of the
+  file layers; the live template buffer still beats it.
 
 They're global, not per-workspace, because a printer is a device attached to the
 machine rather than a property of a project.
@@ -169,12 +182,14 @@ it's configured to do.
 npm test
 ```
 
-Runs the build, then 139 tests across ten layers:
+Runs the build, then 143 tests across twelve layers:
 
 | Layer | File | What it protects |
 |---|---|---|
+| Docs vs code | `docs.test.ts` | That the README's precedence order is the one the resolver actually stacks. Docs that lie about precedence cost a consumer their whole template. |
 | Golden fixtures | `renderer.test.ts` | 7 markdown files → 7 known-good HTML outputs. One per bug that cost real time. |
 | CSS invariants | `css.test.ts` | The print rules that stop silent truncation — wrapping, margins, page size. |
+| Template precedence | `theme.test.ts` | That the layers stack in order — built-in → workspace file → `<doc>.mdprint.css` → setting → live buffer — and that the user's template always wins, including over the built-in. Also that a template can never change the **paper size**. |
 | Job → argv | `printjob.test.ts` | That an unset duplex produces **no** `sides` flag, so printer defaults survive. |
 | Capability parsing | `duplex.test.ts` | That `Duplex/Duplex: *None …` is read as the **Duplex** option, not ignored. Run against real recorded printer output. |
 | Capability advertising | `duplexPicker.test.ts` | That a detected capability actually reaches a picker. Detecting is not advertising. |

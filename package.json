@@ -141,7 +141,7 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "markdownDescription": "Absolute path to a workspace-wide print stylesheet, stacked on top of mdprint's built-in one. The per-item template (`<document>.mdprint.css`) still wins over this."
+          "markdownDescription": "Absolute path to a workspace-wide print stylesheet, stacked on top of mdprint's built-in one. A per-item template (`<document>.mdprint.css`) wins over this."
         },
         "mdprint.theme": {
           "type": "string",

@@ -107,6 +107,25 @@ test('a LICENSE file exists, because the manifest claims a license', () => {
   }
 });
 
+test('the compiled docs test is in the suite, so the README cannot drift unnoticed', () => {
+  // docs.test.ts reads README.md and compares it to what resolveTemplate()
+  // really stacks. It only protects anyone if it is compiled and actually run,
+  // and the compiled tests are excluded from the .vsix — so its only proof of
+  // life is existing in out/test/ after a build.
+  const compiled = path.join(repo, 'out/test/docs.test.js');
+  assert.ok(
+    fs.existsSync(compiled),
+    'out/test/docs.test.js is missing — run `npm run build`; the README/doc check is not running'
+  );
+
+  const src = fs.readFileSync(compiled, 'utf8');
+  assert.match(
+    src,
+    /README\.md/,
+    'the compiled doc check no longer reads README.md, so it is not guarding the docs'
+  );
+});
+
 test('the license file is not excluded from the package', () => {
   // Excluding LICENSE by a broad glob is the quiet failure: vsce stops
   // warning (the file exists on disk) while the license never actually ships.
