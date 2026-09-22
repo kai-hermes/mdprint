@@ -35,6 +35,23 @@ async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
 
+/**
+ * Create the scratch root if it isn't there yet.
+ *
+ * MUST run before anything writes inside the root -- `fs.mkdtemp` will not
+ * create its own parent. This was a real bug: the first print after a fresh
+ * install died with `ENOENT ... mkdtemp '.../T/mdprint/job-XXXXXX'` because
+ * `htmlToPdf` asked for a job directory before the root existed. `ensureShim`
+ * happened to create the root as a side effect, but only ever ran *after* that
+ * point, so the very first job had no parent to be created in.
+ *
+ * `root` is a parameter so tests can point it at a disposable directory. In
+ * production it is always `workDir()`.
+ */
+export async function ensureWorkDir(root = workDir()): Promise<void> {
+  await ensureDir(root);
+}
+
 /** Is the Swift compiler here? Checked once, then cached. */
 let swiftcCache: boolean | undefined;
 
@@ -146,6 +163,10 @@ export async function htmlToPdf(
   label: string,
   log: (line: string) => void
 ): Promise<string> {
+  // The root must exist before mkdtemp, which will not create its own parent.
+  // This is the fix for the fresh-install ENOENT -- see ensureWorkDir.
+  await ensureWorkDir();
+
   const dir = await fs.mkdtemp(path.join(workDir(), 'job-'));
   const safe = label.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'document';
   const htmlPath = path.join(dir, `${safe}.html`);
@@ -183,12 +204,15 @@ export async function cleanup(dir: string): Promise<void> {
 }
 
 /** Delete scratch directories left behind by an earlier crash or kill. */
-export async function sweepOldJobs(maxAgeMs = 24 * 60 * 60 * 1000): Promise<void> {
-  const root = workDir();
+export async function sweepOldJobs(
+  maxAgeMs = 24 * 60 * 60 * 1000,
+  root = workDir()
+): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(root);
   } catch {
+    // No root yet is the normal state on a fresh install, not an error.
     return;
   }
 
