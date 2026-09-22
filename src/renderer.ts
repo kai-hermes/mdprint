@@ -369,6 +369,22 @@ export function buildHtml(mdText: string, srcName: string, options: RenderOption
   let content = renderBlocks(body);
   content = content.replace(/^<p>/, '<p class="preamble">');
 
+  /**
+   * Don't print the title twice.
+   *
+   * The document already starts with its own `<h1>` when the author wrote one
+   * (`# Template Proof`), and the page title is also emitted below from the
+   * frontmatter. Both firing put the same heading on the paper twice — visible
+   * on a real sheet, invisible in every test that only checked the title was
+   * *present*.
+   *
+   * So: only synthesise an `<h1>` when the document didn't open with a
+   * top-level heading of its own. A `##` or a paragraph first still gets the
+   * generated title, because there is nothing to duplicate.
+   */
+  const opensWithH1 = /^\s*<h1[ >]/.test(content);
+  const titleHeading = opensWithH1 ? '' : `<h1>${escapeHtml(title, true)}</h1>\n`;
+
   const footer =
     '<div class="page-footer">' +
     `<span>${escapeHtml(title, true)}</span>` +
@@ -387,8 +403,7 @@ ${css}
 </head>
 <body>
 <main>
-<h1>${escapeHtml(title, true)}</h1>
-${content}
+${titleHeading}${content}
 </main>
 ${footer}
 </body>

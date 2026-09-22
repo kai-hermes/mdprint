@@ -80,46 +80,87 @@ var mLeft: CGFloat = 15 * MM
 
 let src = (try? String(contentsOfFile: inPath, encoding: .utf8)) ?? ""
 
-if let r = src.range(of: "@page\\s*\\{[^}]*\\}", options: .regularExpression) {
-    let block = String(src[r])
+// @page geometry.
+//
+// Match EVERY @page block, not just the first. The built-in stylesheet opens
+// with `@page :left`, `@page :right` and `@page :first` before the real one, and
+// a user theme appends its own on top — so "the first block" is a margin-only
+// pseudo-rule and honouring it silently discards the theme.
+//
+// Explicit `margin-*` longhands win over a `margin` shorthand in an EARLIER
+// block, and a later `margin` shorthand wins over an earlier longhand. That is
+// the CSS cascade the user is writing against, so it is the cascade applied
+// here. (The shim never lets `createPDF` paginate — it reads geometry here and
+// lays the document out itself, which is why this is the only place @page is
+// honoured at all.)
+var pageBlocks: [String] = []
+var search = src.startIndex..<src.endIndex
+while let r = src.range(of: "@page\\s*\\{[^}]*\\}", options: .regularExpression, range: search) {
+    pageBlocks.append(String(src[r]))
+    search = r.upperBound..<src.endIndex
+}
 
-    func mmValue(_ key: String) -> CGFloat? {
-        guard let m = block.range(of: key + "\\s*:\\s*([0-9.]+)mm", options: .regularExpression)
-        else { return nil }
-        let s = String(block[m])
-        guard let colon = s.firstIndex(of: ":") else { return nil }
-        let tail = s[s.index(after: colon)...].replacingOccurrences(of: "mm", with: "")
-        return CGFloat(Double(tail.trimmingCharacters(in: .whitespaces)) ?? 0) * MM
+/// Pull one `margin*` declaration out of a single @page block, as raw tokens.
+func declaration(_ block: String, _ prop: String) -> String? {
+    guard let m = block.range(of: prop + "\\s*:\\s*([^;}]+)", options: .regularExpression)
+    else { return nil }
+    let s = String(block[m])
+    guard let colon = s.firstIndex(of: ":") else { return nil }
+    return String(s[s.index(after: colon)...]).trimmingCharacters(in: CharacterSet(charactersIn: " ;}"))
+}
+
+/// `14mm 15mm 16mm 15mm` — CSS order: top right bottom left.
+func boxFrom(_ spec: String, into current: inout (CGFloat, CGFloat, CGFloat, CGFloat)) -> Bool {
+    let parts = spec
+        .replacingOccurrences(of: "mm", with: "")
+        .trimmingCharacters(in: CharacterSet(charactersIn: " ;}"))
+        .split(separator: " ")
+        .compactMap { Double($0).map { CGFloat($0) * MM } }
+    switch parts.count {
+    case 1: current = (parts[0], parts[0], parts[0], parts[0])
+    case 2: current = (parts[0], parts[1], parts[0], parts[1])
+    case 3: current = (parts[0], parts[1], parts[2], parts[1])
+    case 4: current = (parts[0], parts[1], parts[2], parts[3])
+    default: return false
     }
+    return true
+}
 
-    if block.contains("size:A4") || block.contains("size: A4") {
-        pageW = 210 * MM; pageH = 297 * MM
-    } else if let w = mmValue("width"), let h = mmValue("height") {
-        pageW = w; pageH = h
-    }
+if !pageBlocks.isEmpty {
+    var box: (CGFloat, CGFloat, CGFloat, CGFloat) = (mTop, mRight, mBottom, mLeft)
 
-    // `margin: 14mm 15mm 16mm 15mm` — CSS order: top right bottom left
-    if let mr = block.range(of: "margin\\s*:\\s*([^;}]+)", options: .regularExpression) {
-        let raw = String(block[mr])
-        if let colon = raw.firstIndex(of: ":") {
-            let parts = raw[raw.index(after: colon)...]
-                .replacingOccurrences(of: "mm", with: "")
-                .trimmingCharacters(in: CharacterSet(charactersIn: " ;}"))
-                .split(separator: " ")
-                .compactMap { CGFloat(Double($0) ?? 0) * MM }
-            switch parts.count {
-            case 1: mTop = parts[0]; mRight = parts[0]; mBottom = parts[0]; mLeft = parts[0]
-            case 2: mTop = parts[0]; mRight = parts[1]; mBottom = parts[0]; mLeft = parts[1]
-            case 3: mTop = parts[0]; mRight = parts[1]; mBottom = parts[2]; mLeft = parts[1]
-            case 4: mTop = parts[0]; mRight = parts[1]; mBottom = parts[2]; mLeft = parts[3]
-            default: break
+    // Walk the blocks in document order, letting later declarations win.
+    for block in pageBlocks {
+        if block.contains("size:A4") || block.contains("size: A4") {
+            pageW = 210 * MM; pageH = 297 * MM
+        } else if let spec = declaration(block, "size"),
+                  let wh = spec.range(of: "([0-9.]+)mm\\s+([0-9.]+)mm", options: .regularExpression) {
+            let nums = String(spec[wh]).replacingOccurrences(of: "mm", with: "")
+                .split(separator: " ").compactMap { Double($0).map { CGFloat($0) * MM } }
+            if nums.count == 2 { pageW = nums[0]; pageH = nums[1] }
+        }
+
+        if let spec = declaration(block, "margin"), boxFrom(spec, into: &box) {
+            // Shorthand resets all four, exactly as CSS does.
+        }
+        // Longhands are applied after, so they always beat a shorthand in an
+        // earlier block — and a later shorthand beats them in turn, because the
+        // loop keeps moving forward.
+        for (prop, idx) in [("margin-top", 0), ("margin-right", 1), ("margin-bottom", 2), ("margin-left", 3)] {
+            if let spec = declaration(block, prop),
+               let v = Double(spec.replacingOccurrences(of: "mm", with: "")
+                   .trimmingCharacters(in: .whitespaces)) {
+                switch idx {
+                case 0: box.0 = CGFloat(v) * MM
+                case 1: box.1 = CGFloat(v) * MM
+                case 2: box.2 = CGFloat(v) * MM
+                default: box.3 = CGFloat(v) * MM
+                }
             }
         }
     }
-    if let v = mmValue("margin-left") { mLeft = v }
-    if let v = mmValue("margin-right") { mRight = v }
-    if let v = mmValue("margin-top") { mTop = v }
-    if let v = mmValue("margin-bottom") { mBottom = v }
+
+    mTop = box.0; mRight = box.1; mBottom = box.2; mLeft = box.3
 }
 
 let contentW = pageW - mLeft - mRight

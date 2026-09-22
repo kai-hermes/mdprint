@@ -165,6 +165,43 @@ test('task list items are marked done or open', () => {
   assert.ok(/class="task"/.test(html), 'an unchecked task did not render as open');
 });
 
+test('the title is not printed twice when the document opens with its own H1', () => {
+  // A real sheet came back with "Template Proof" as a double heading: the
+  // frontmatter title generated one <h1> and the author's own `# Template Proof`
+  // produced another. Every existing test passed, because all of them asked
+  // whether the title was PRESENT, never how many times.
+  const md = '---\ntitle: Template Proof\n---\n\n# Template Proof\n\nBody text.\n';
+  const html = buildHtml(md, 'proof.md', { now: FIXED, css: '' });
+
+  const headings = html.match(/<h1[ >]/g) ?? [];
+  assert.equal(
+    headings.length,
+    1,
+    `the document starts with its own H1, so exactly one <h1> should reach the page — got ${headings.length}`
+  );
+  assert.match(html, /<h1>Template Proof<\/h1>/);
+});
+
+test('a document with no leading H1 still gets its title as a heading', () => {
+  const md = '---\ntitle: Quiet Report\n---\n\nJust a paragraph, no heading of its own.\n';
+  const html = buildHtml(md, 'quiet.md', { now: FIXED, css: '' });
+
+  assert.equal((html.match(/<h1[ >]/g) ?? []).length, 1, 'the generated title must still appear');
+  assert.match(html, /<h1>Quiet Report<\/h1>/);
+});
+
+test('a bare document with no frontmatter and no H1 is titled from its filename', () => {
+  const html = buildHtml('plain body\n', 'my-notes_v2.md', { now: FIXED, css: '' });
+  assert.match(html, /<h1>my notes v2<\/h1>/);
+});
+
+test('a ## first heading does not suppress the generated title', () => {
+  const md = '---\ntitle: Report\n---\n\n## Section\n\nbody\n';
+  const html = buildHtml(md, 'r.md', { now: FIXED, css: '' });
+  assert.equal((html.match(/<h1[ >]/g) ?? []).length, 1, 'an H2 is not a title');
+  assert.match(html, /<h1>Report<\/h1>/);
+});
+
 // ------------------------------------------------------------ golden-file policy
 
 /**

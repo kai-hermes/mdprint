@@ -96,6 +96,23 @@ export async function capabilities(printer: string): Promise<{
     return { known: false, duplex: false, paperSizes: [] };
   }
 
+  return parseCapabilities(out);
+}
+
+/**
+ * Turn `lpoptions -l` output into capabilities.
+ *
+ * Split out from `capabilities()` — which shells out — so the parsing can be
+ * tested against REAL recorded output without a printer attached. The obvious
+ * alternative, having the test re-implement this loop, is how the duplex bug
+ * survived its own test suite: a mirror of the parser keeps calling the fixed
+ * helper and passes no matter what the shipped code does. See duplex.test.ts.
+ */
+export function parseCapabilities(out: string): {
+  known: boolean;
+  duplex: boolean;
+  paperSizes: { id: string; label: string; isDefault: boolean }[];
+} {
   let duplex = false;
   const paperSizes: { id: string; label: string; isDefault: boolean }[] = [];
 
@@ -107,12 +124,12 @@ export async function capabilities(printer: string): Promise<{
     if (colon < 0) {
       continue;
     }
-    const key = raw.slice(0, colon).trim();
+    const key = optionKey(raw.slice(0, colon));
     const values = raw.slice(colon + 1).trim();
 
-    // `Duplex: *None DuplexNoTumble DuplexTumble` — the * marks the default.
+    // `Duplex/Duplex: *None DuplexNoTumble DuplexTumble` — the * marks the default.
     if (key === 'Duplex') {
-      duplex = !/^\*?None$/.test(values.trim()) || values.split(/\s+/).some((v) => !/^\*?None$/.test(v));
+      duplex = advertisesDuplex(values);
       continue;
     }
 
@@ -128,6 +145,41 @@ export async function capabilities(printer: string): Promise<{
   }
 
   return { known: true, duplex, paperSizes };
+}
+
+/**
+ * The option name from the left of an `lpoptions -l` line.
+ *
+ * CUPS prints these as `Name/Human readable label`, e.g.
+ *
+ *     Duplex/Duplex: *None DuplexNoTumble DuplexTumble
+ *     PageSize/Media Size: 3.5x5 4x6 *A4 A5
+ *     ColorModel/Output Mode: *RGB Gray
+ *
+ * so the bit before the first `/` is the name you can actually pass as `-o`.
+ * Comparing the whole key against `'Duplex'` never matched, which silently
+ * reported EVERY printer as unable to print two-sided — the printer advertised
+ * it the whole time, and the failure was a string comparison.
+ *
+ * Only the first `/` splits the two halves: labels legitimately contain slashes.
+ */
+export function optionKey(left: string): string {
+  const slash = left.indexOf('/');
+  return (slash < 0 ? left : left.slice(0, slash)).trim();
+}
+
+/**
+ * Does a `Duplex` value list offer anything other than off?
+ *
+ * `*None` (or a bare `None`) means the queue only does single-sided, so we must
+ * not offer two-sided anything. Anything else in the list is a real duplex mode
+ * — including the case where the DEFAULT is two-sided and `None` trails it.
+ */
+export function advertisesDuplex(values: string): boolean {
+  return values
+    .split(/\s+/)
+    .map((tok) => tok.replace(/^\*/, '').trim())
+    .some((tok) => tok !== '' && tok !== 'None');
 }
 
 /**

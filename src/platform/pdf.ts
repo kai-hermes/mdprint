@@ -161,7 +161,8 @@ export async function ensureShim(log: (line: string) => void): Promise<string> {
 export async function htmlToPdf(
   html: string,
   label: string,
-  log: (line: string) => void
+  log: (line: string) => void,
+  report?: (stage: string) => void
 ): Promise<string> {
   // The root must exist before mkdtemp, which will not create its own parent.
   // This is the fix for the fresh-install ENOENT -- see ensureWorkDir.
@@ -173,6 +174,23 @@ export async function htmlToPdf(
   const pdfPath = path.join(dir, `${safe}.pdf`);
 
   await fs.writeFile(htmlPath, html, 'utf8');
+
+  // The compile is the long pole on a cold machine, so it gets its own stage.
+  // On a warm machine `ensureShim` returns in a few milliseconds and the user
+  // never reads this line -- which is the point: the bar is the shape of the
+  // work, not a script that plays the same way every time.
+  const stamp = shimPaths().stamp;
+  let cold = true;
+  try {
+    cold = (await fs.readFile(stamp, 'utf8')).trim() !== hashOf(PDF_SHIM_SOURCE);
+  } catch {
+    cold = true;
+  }
+  if (cold) {
+    report?.('building the PDF converter (first run only)');
+  } else {
+    report?.('laying out the pages');
+  }
 
   const binary = await ensureShim(log);
 

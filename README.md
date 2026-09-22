@@ -88,26 +88,62 @@ survives restarts and only rebuilds if that source actually changes.
 
 ## Use
 
-Four commands, available from the Explorer right-click, the editor tab right-click, and
+Five commands, available from the Explorer right-click, the editor tab right-click, and
 the Command Palette (when a markdown file is active):
 
-- **mdprint: Print** — straight to the printer, one click. Uses any settings you've
-  saved for that printer and tells you what it used.
-- **mdprint: Print with options…** — asks first: printer, duplex, copies. The choices
-  you make here are remembered for that printer.
+- **mdprint: Print** — render, then ask which printer and which sides, then print. One
+  click to a sheet of paper.
+- **mdprint: Print with dialog…** — render, then hand the PDF to your system print
+  dialog. Every driver option mdprint deliberately refuses to model lives in there.
+- **mdprint: Customise template for this item…** — open a live stylesheet for the
+  document you're looking at. What you see is what prints.
 - **mdprint: Choose printer for this document…** — pick a printer without printing.
 - **mdprint: Save as PDF…** — no printer involved. Useful for checking layout.
 
 **Unsaved buffers work.** Press it with unsaved edits and it prints what's on screen,
 not what's on disk.
 
+While a print is running you get a progress window in the notification area, naming the
+step you're waiting on — including the one-off converter build on first use, which is
+the longest silent stretch. It stays up until the dialog appears or the printer picker
+asks you something.
+
+### Two-sided printing
+
+mdprint asks the queue what it can do — `lpoptions -l` — and offers two-sided rows only
+when the printer actually advertises them. If it doesn't, you get told so rather than
+being handed a choice that would fail at the printer.
+
+The choice is remembered per printer, so the second print is one click again.
+
+> **Note on `lpoptions` parsing:** CUPS prints keys as `Duplex/Duplex: *None
+> DuplexNoTumble DuplexTumble` — name, slash, human label. The name before the first
+> slash is the part you can pass as `-o`. Reading the whole key is how a printer that
+> genuinely does two-sided gets reported as single-sided-only, which is exactly the bug
+> this release fixes.
+
+### Per-item templates
+
+A template can be set four ways, and the richest one wins:
+
+```
+built-in  →  mdprint.themeFile  →  <doc>.mdprint.css  →  mdprint.theme
+```
+
+- **`<doc>.mdprint.css`** beside the file — travels with the document through git.
+- **`mdprint.themeFile`** — one stylesheet for the whole workspace.
+- **`mdprint.theme`** — a live override, edited with *Customise template for this item…*.
+- A template **cannot** set paper size. That's stripped and logged; margins are honoured.
+
 ### Settings
 
-A saved setting is a **default, never a lock**. Two settings exist:
+A saved setting is a **default, never a lock**. These exist:
 
 - `mdprint.defaultPrinter` — skip the picker when only one answer makes sense.
 - `mdprint.printerSettings` — per-printer memory of duplex and copies, written
-  automatically when you use *Print with options…*.
+  automatically when you choose them.
+- `mdprint.themeFile` — a workspace stylesheet, or empty for none.
+- `mdprint.theme` — a live style override, or empty for none.
 
 They're global, not per-workspace, because a printer is a device attached to the
 machine rather than a property of a project.
@@ -123,15 +159,30 @@ it's configured to do.
 npm test
 ```
 
-Runs the build, then 56 tests across five layers:
+Runs the build, then 115 tests across eight layers:
 
 | Layer | File | What it protects |
 |---|---|---|
 | Golden fixtures | `renderer.test.ts` | 7 markdown files → 7 known-good HTML outputs. One per bug that cost real time. |
 | CSS invariants | `css.test.ts` | The print rules that stop silent truncation — wrapping, margins, page size. |
 | Job → argv | `printjob.test.ts` | That an unset duplex produces **no** `sides` flag, so printer defaults survive. |
-| Platform seam | `detect.test.ts` | Backend detection picks the right class, and fails loudly on the wrong OS. |
-| Build integrity | `shim.test.ts`, `packaging.test.ts` | The embedded native source matches its original, and test byproducts never ship. |
+| Capability parsing | `duplex.test.ts` | That `Duplex/Duplex: *None …` is read as the **Duplex** option, not ignored. Run against real recorded printer output. |
+| Capability advertising | `duplexPicker.test.ts` | That a detected capability actually reaches a picker. Detecting is not advertising. |
+| Progress | `progress.test.ts` | That the bar advances, only forwards, and never reports full while work continues. |
+| Platform seam | `detect.test.ts`, `doors.test.ts` | Backend detection picks the right class, and every backend capability is reachable from a registered command. |
+| Build integrity | `shim.test.ts`, `packaging.test.ts`, `workdir.test.ts` | The embedded native source matches its original, test byproducts never ship, and the scratch dir exists before anything writes to it. |
+
+### Two rules these tests exist to enforce
+
+**A test that re-implements the code under test cannot fail for the right reason.**
+`duplex.test.ts` originally had a mirror of the parsing loop, and when the original
+bug was put back by hand the whole suite stayed green. The parser is now extracted as
+`parseCapabilities()` and called directly, and the mutation turns it red.
+
+**A test that filters away the values it's checking proves nothing.** The backwards
+guard in the progress bar was invisible to the suite because the helper discarded
+non-positive increments — the very values the guard exists to prevent. It's now
+asserted against `advance()` directly.
 
 Useful variants:
 

@@ -12,7 +12,9 @@
  * that reads a saved setting offers a way to not use it:
  *
  *   - the one-click command uses the saved settings, and says so in the toast,
- *   - "Print with options…" always asks, starting from the saved values,
+ *   - "Print" uses the values saved for the printer and prints immediately.
+ *   - "Print with dialog…" hands the PDF to the OS print dialog instead, which
+ *     is where every option past duplex/copies lives.
  *   - changing the answer there updates what's remembered.
  *
  * With nothing saved, mdprint passes NO flags at all and lets the printer do
@@ -113,7 +115,12 @@ export function jobFor(source: PrintSource, printer: string): PrintJob {
   return job;
 }
 
-/** Duplex options for the picker, only offered when the queue says it can. */
+/**
+ * Human labels for the duplex values carried on a `PrintJob`.
+ *
+ * Named label + value pairs, not raw CUPS strings, because these surface in
+ * the "printed N pages · two-sided" toast and in saved settings.
+ */
 export const DUPLEX_LABELS: { label: string; value: Duplex; description: string }[] = [
   {
     label: 'One-sided',
