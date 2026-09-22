@@ -23,6 +23,52 @@ import { PRINT_CSS } from '../css.js';
 
 const quiet = () => undefined;
 
+/** Internal CommonJS loader signature — `_load` is not in @types/node. */
+type LoadFn = (
+  request: string,
+  parent: unknown,
+  isMain: boolean
+) => unknown;
+
+/**
+ * Load a compiled test file with `node:test` stubbed out and count the tests it
+ * declares. The bodies never run, so this is safe to point at anything.
+ */
+function countTestsIn(
+  file: string,
+  origLoad: LoadFn,
+  stub: () => unknown
+): number {
+  const mod = require('node:module') as { _load: LoadFn };
+  let n = 0;
+  const wrapped = () => {
+    n += 1;
+    return stub();
+  };
+
+  mod._load = function (
+    this: unknown,
+    request: string,
+    parent: unknown,
+    isMain: boolean
+  ) {
+    if (request === 'node:test') {
+      return { test: wrapped, default: wrapped };
+    }
+    return origLoad.call(this, request, parent, isMain);
+  };
+
+  try {
+    // A fresh copy each time: require() caches, and a cached module would report
+    // zero tests on the second visit.
+    delete require.cache[require.resolve(file)];
+    require(file);
+  } finally {
+    mod._load = origLoad;
+  }
+  return n;
+}
+
 /** The README's precedence diagram, in order. */
 function documentedOrder(): string[] {
   const readme = fs.readFileSync(path.join(process.cwd(), 'README.md'), 'utf8');
@@ -112,6 +158,68 @@ test('each template layer lands after the previous one, so the narrowest scope w
     );
     prev = at;
   }
+});
+
+test('the README states the number of tests that actually run', () => {
+  // This count has been wrong twice (139 -> 143 -> 144) because adding a test
+  // means remembering to edit prose. A stale number is a small lie, but it is
+  // the kind a reader uses to decide whether the suite is worth trusting.
+  //
+  // Count the tests the runner really declares, by loading each compiled file
+  // with node:test stubbed out. Grepping the source for `test(` is not good
+  // enough: this file's own regex literal and its assertion message both match,
+  // so the naive count reports two more tests than exist. Ask the files instead.
+  const dir = path.join(process.cwd(), 'out/test');
+  const files = fs.readdirSync(dir).filter((f) => f.endsWith('.test.js'));
+
+  const mod = require('node:module') as { _load: LoadFn };
+  const origLoad = mod._load;
+  let declared = 0;
+  // node:test's `test()` returns a promise; the loader ignores it, and the
+  // bodies are never run, so nothing here touches the filesystem or private keys.
+  const stub = () => Object.assign(Promise.resolve(), { skip: () => undefined, todo: () => undefined });
+
+  try {
+    for (const f of files) {
+      const full = path.join(dir, f);
+      declared += countTestsIn(full, origLoad, stub);
+    }
+  } finally {
+    // The finally is the point: if loading any file throws, restore the loader
+    // before the exception escapes, or every later test runs with node:test
+    // stubbed and silently reports nothing.
+    mod._load = origLoad;
+  }
+
+  const readme = fs.readFileSync(path.join(process.cwd(), 'README.md'), 'utf8');
+  const claim = readme.match(/then (\d+) tests across (\w+) layers/);
+  assert.ok(
+    claim,
+    'README no longer states "N tests across M layers" — reinstate the claim or drop this test'
+  );
+
+  assert.equal(
+    Number(claim[1]),
+    declared,
+    `README claims ${claim[1]} tests but the suite declares ${declared}`
+  );
+
+  // The layer count must agree with the table printed right below the claim.
+  const tableRows = readme
+    .slice(readme.indexOf('| Layer |'))
+    .split('\n')
+    .filter((l) => l.startsWith('|'));
+  const layers = tableRows.length - 2; // minus header and separator
+  const words: Record<string, number> = {
+    ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14, fifteen: 15,
+  };
+  const claimed = words[claim[2]];
+  assert.ok(claimed, `unrecognised layer word "${claim[2]}" — add it to the map`);
+  assert.equal(
+    claimed,
+    layers,
+    `README says "${claim[2]} layers" but the table lists ${layers}`
+  );
 });
 
 test('the live buffer is the last thing in the stack, after the built-in stylesheet', async () => {

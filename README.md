@@ -182,7 +182,7 @@ it's configured to do.
 npm test
 ```
 
-Runs the build, then 143 tests across twelve layers:
+Runs the build, then 151 tests across thirteen layers:
 
 | Layer | File | What it protects |
 |---|---|---|
@@ -197,6 +197,7 @@ Runs the build, then 143 tests across twelve layers:
 | Wiring | `wiring.test.ts` | That choosing the PDF row actually calls the save step. Resolving to `{kind:'pdf'}` and doing nothing is not saving. |
 | Progress | `progress.test.ts` | That the bar advances, only forwards, and never reports full while work continues. |
 | Platform seam | `detect.test.ts`, `doors.test.ts` | Backend detection picks the right class, and every backend capability is reachable from a registered command. |
+| Handoff lifespan | `lifespan.test.ts` | That a PDF handed to another program **outlives this run**. The scratch dir is deleted in a `finally`, so a handed-over path used to vanish — printing silently did nothing and the dialog reported *"there is no such file"*. Now asserts the real filesystem: release, delete the scratch dir, file still there. |
 | Build integrity | `shim.test.ts`, `packaging.test.ts`, `workdir.test.ts` | The embedded native source matches its original, test byproducts never ship, and the scratch dir exists before anything writes to it. |
 
 ### Two rules these tests exist to enforce

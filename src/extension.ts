@@ -32,7 +32,7 @@ import { chooseDestination } from './destination-choice';
 import { Destination } from './destination-rules';
 import { chooseDuplex } from './duplex-choice';
 import { detect, tryDetect } from './platform/detect';
-import { cleanup, htmlToPdf, sweepOldJobs, workDir } from './platform/pdf';
+import { cleanup, handoffDir, htmlToPdf, release, sweepOldJobs, workDir } from './platform/pdf';
 import { PrintError, Printer, PrintSource } from './platform/types';
 import { Progress, silentProgress, Stage, withProgress } from './progress';
 import { buildHtml } from './renderer';
@@ -144,6 +144,18 @@ async function runPrint(
       progress.report('handing the PDF to the print dialog');
       const summary = await backend.printWithDialog(rendered.pdfPath);
       log(summary);
+
+      // THE FILE MUST OUTLIVE US. Handing over `rendered.pdfPath` and then
+      // letting the `finally` below run is what produced
+      //   "The file … couldn't be opened because there is no such file."
+      // in the user's Preview. `open -g -a Preview` returns the moment the
+      // handoff is made, so the scratch dir was deleted while Preview was
+      // still opening the file — and a print job sent to the dialog was
+      // deleted before the dialog had read it at all. Moving the PDF
+      // somewhere that isn't swept is the fix; see release() for why it is a
+      // copy and not an exemption flag.
+      const handedOver = await release(rendered.pdfPath);
+      log(`Released the PDF to ${handedOver} — it outlives this run by design.`);
 
       void vscode.window.showInformationMessage(
         rendered.dirty
@@ -414,6 +426,7 @@ export function activate(context: vscode.ExtensionContext): void {
   });
 
   log(`mdprint ready. Scratch directory: ${workDir()}`);
+  log(`Checked-out PDFs live in: ${handoffDir()}`);
 
   const backend = tryDetect();
   if (!backend) {

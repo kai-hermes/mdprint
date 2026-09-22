@@ -22,7 +22,9 @@
  * answer "yes, replace it" — which is what this does, explicitly, after asking.
  */
 
+import * as fsSync from 'node:fs';
 import * as fs from 'node:fs/promises';
+import * as os from 'node:os';
 import * as path from 'node:path';
 
 import * as vscode from 'vscode';
@@ -35,6 +37,26 @@ export interface SaveOutcome {
   replaced: boolean;
   /** True when the editor had unsaved changes, so the PDF is newer than disk. */
   dirty: boolean;
+}
+
+/**
+ * Where the save dialog should offer to put the PDF.
+ *
+ * The user's Documents directory, falling back to home, then to a plain name
+ * (which lets the OS choose). Deliberately never the directory the scratch PDF
+ * came from: that folder is deleted when the run ends.
+ */
+function defaultDir(): string {
+  const home = os.homedir();
+  const docs = path.join(home, 'Documents');
+  try {
+    if (fsSync.statSync(docs).isDirectory()) {
+      return docs;
+    }
+  } catch {
+    // No Documents folder (some Linux setups) — home is still a real place.
+  }
+  return home;
 }
 
 /**
@@ -69,9 +91,15 @@ export async function savePdfAs(
     title: 'Save as PDF',
     saveLabel: 'Save PDF',
     filters: { PDF: ['pdf'] },
-    defaultUri: vscode.Uri.file(
-      path.join(path.dirname(pdfPath), suggestedName(fileName))
-    ),
+    // NOT path.dirname(pdfPath). The PDF lives in a mkdtemp SCRATCH directory
+    // with a job-UUID name, and `runPrint`'s `finally` deletes that directory
+    // the moment the run ends — which is right after this dialog is answered.
+    // Offering a scratch path meant the save dialog could hand back a
+    // destination inside a folder that was about to be deleted:
+    //   "The file … couldn't be opened because there is no such file."
+    // The user's own document folder is the honest default — it is where a
+    // person looks for a PDF they just saved, and it is not swept.
+    defaultUri: vscode.Uri.file(path.join(defaultDir(), suggestedName(fileName))),
   });
 
   // Backing out is a legitimate answer, not a failure. Same rule as every other

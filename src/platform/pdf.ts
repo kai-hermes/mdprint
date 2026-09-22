@@ -31,6 +31,85 @@ export function workDir(): string {
   return path.join(os.tmpdir(), 'mdprint');
 }
 
+/**
+ * Where a PDF goes when we hand it to a program that outlives us.
+ *
+ * WHY THIS IS NOT workDir(). Everything in the scratch directory is disposable
+ * by design: `cleanup()` removes a job directory the moment a run finishes, and
+ * `sweepOldJobs()` reaps anything stale. That is correct for a file we are
+ * done with — and wrong for a file we have just handed to Preview, which reads
+ * it on its own schedule, or to a print dialog the user is still poking at.
+ *
+ * A PDF that has been released to another process stops being a scratch file
+ * and becomes a checked-out one: we still own deleting it, but only once the
+ * program holding it is visibly done. `~/Library/Caches` (or the platform
+ * equivalent) is the right home for that — the OS may reclaim it eventually,
+ * but nothing of ours will delete it out from under an open window.
+ *
+ * The `mdprint-` prefix is what makes an abandoned checkout identifiable by
+ * hand. It is deliberately NOT `job-`, so the two never blur.
+ */
+export function handoffDir(): string {
+  return path.join(os.tmpdir(), 'mdprint-handoff');
+}
+
+/** Marks a checked-out PDF as still in use, so the reaper leaves it alone. */
+function pendingMarker(pdfPath: string): string {
+  return `${pdfPath}.pending`;
+}
+
+/**
+ * Give a PDF a lifetime longer than this run.
+ *
+ * Returns the path the other program should be handed. It is a COPY, not a
+ * move, and the copy is what makes the guarantee hold: `runPrint` early-returns
+ * from inside a try/finally, and a `finally` deletes the scratch directory
+ * whether we return early or not. There is no "skip the finally" flag to forget
+ * to set; the surviving file simply isn't in the directory being deleted.
+ *
+ * WHAT WENT WRONG WITHOUT THIS. The dialog door handed `rendered.pdfPath` to
+ * Preview and then let `finally` delete it, so the user got
+ *   "The file … couldn't be opened because there is no such file."
+ * and a print job handed to the dialog was deleted before the dialog had even
+ * read it — `open -g -a Preview` exits as soon as it has handed off.
+ *
+ * Idempotent, because both doors call it: releasing twice must not leak a
+ * second copy or lose the marker.
+ */
+export async function release(pdfPath: string): Promise<string> {
+  const dir = handoffDir();
+  await ensureDir(dir);
+
+  const target = path.join(dir, path.basename(pdfPath));
+  try {
+    await fs.copyFile(pdfPath, target);
+  } catch (e) {
+    // Fail loud rather than returning a path to a file that isn't there —
+    // that is the exact defect this function exists to remove.
+    throw new PrintError(
+      'The PDF was built but could not be handed to the print dialog. Nothing was ' +
+        `printed — the output pane has the details. (${(e as Error).message})`
+    );
+  }
+
+  // The marker is written AFTER the copy, so a sweep racing this call either
+  // sees no marker and an unfinished copy, or a marker and a complete one.
+  await fs.writeFile(pendingMarker(target), new Date().toISOString(), 'utf8');
+  return target;
+}
+
+/**
+ * Stop tracking a checked-out PDF, so the next sweep may reclaim it.
+ *
+ * Called by the dialogs themselves when we can tell they are finished with the
+ * file. When we cannot tell — Preview gives no such signal — the marker simply
+ * stays and `sweepOldJobs()` reclaims it on age, which is the whole point of
+ * having a separate, slower schedule for the handoff directory.
+ */
+export async function finishWith(pdfPath: string): Promise<void> {
+  await fs.rm(pendingMarker(pdfPath), { force: true });
+}
+
 async function ensureDir(dir: string): Promise<void> {
   await fs.mkdir(dir, { recursive: true });
 }
@@ -221,11 +300,33 @@ export async function cleanup(dir: string): Promise<void> {
   await fs.rm(dir, { recursive: true, force: true });
 }
 
-/** Delete scratch directories left behind by an earlier crash or kill. */
+/**
+ * Delete scratch directories left behind by an earlier crash or kill.
+ *
+ * Two schedules, because the two directories are not the same kind of thing:
+ *
+ *   - the scratch dir (`job-*`) is disposable the instant a run ends, so a
+ *     short age is right — anything still there is debris from a crash;
+ *   - the handoff dir holds PDFs that OTHER PROGRAMS may still have open. Its
+ *     threshold is much longer, and a `.pending` marker exempts a file
+ *     entirely, because we cannot see when Preview closes a window and must
+ *     not guess.
+ *
+ * Sweeping a checked-out file early is how you get "the file couldn't be
+ * opened because there is no such file" from a document the user printed an
+ * hour ago — the same defect, moved to a later clock.
+ */
 export async function sweepOldJobs(
   maxAgeMs = 24 * 60 * 60 * 1000,
-  root = workDir()
+  root = workDir(),
+  handoffMaxAgeMs = 14 * 24 * 60 * 60 * 1000,
+  handoffRoot = handoffDir()
 ): Promise<void> {
+  await sweep(root, maxAgeMs, false);
+  await sweep(handoffRoot, handoffMaxAgeMs, true);
+}
+
+async function sweep(root: string, maxAgeMs: number, honourMarkers: boolean): Promise<void> {
   let entries: string[];
   try {
     entries = await fs.readdir(root);
@@ -237,10 +338,21 @@ export async function sweepOldJobs(
   const cutoff = Date.now() - maxAgeMs;
   await Promise.all(
     entries
-      .filter((e) => e.startsWith('job-'))
+      .filter((e) => (honourMarkers ? e.endsWith('.pdf') : e.startsWith('job-')))
       .map(async (e) => {
         const full = path.join(root, e);
         try {
+          if (honourMarkers) {
+            // A checked-out file with a marker is in use, or we simply never
+            // learned that it wasn't. Either way: hands off.
+            const marker = pendingMarker(full);
+            try {
+              const mark = await fs.stat(marker);
+              if (mark.mtimeMs > cutoff) return;
+            } catch {
+              // No marker: released long ago, safe to reclaim.
+            }
+          }
           const st = await fs.stat(full);
           if (st.mtimeMs < cutoff) {
             await fs.rm(full, { recursive: true, force: true });
