@@ -70,7 +70,12 @@ These are not nice-to-haves. Each one was a real bug that produced a bad sheet:
    width with no margins reserved. Fixed by insetting the content box to the `@page`
    margins — **not** by shrinking the paper, which is what the first attempt did and
    made it worse (it produced a 179.9 mm-wide page).
-3. **Only page 1 printed.** Fixed with an explicit `display:block` in `@media print`.
+3. **Only page 1 printed.** ~~Fixed with an explicit `display:block` in `@media print`.~~
+   **This diagnosis was WRONG, and the real cause was found during the TypeScript build.**
+   `display:block` was a band-aid that happened to help one case. The actual root cause is
+   that **`WKWebView.createPDF` never paginates at all** — see §7.1. The converter now
+   paginates by hand. This is the bug the whole project exists to kill, so it gets its own
+   section rather than a bullet.
 4. **Collapsed `<details>` printed empty.** Replaced with a plain `[hidden]` div.
 5. **Dark mode printed the wrong colours.** Tokens pinned to light inside
    `@media print :root {}`.
@@ -223,14 +228,84 @@ that does a good job without dragging in a browser.
 
 The POC solved this the right way: **macOS's own web engine, offscreen.**
 
-- A ~67-line Swift binary using `WKWebView` + `createPDF`
+- A Swift binary using `WKWebView` + `createPDF`
 - No window, no tab, no browser UI, **no Chrome dependency**
 - The browser is real but *invisible* — the engine Safari uses, with no UI attached
 - This answers the original objection (*"the idea that we open up a web browser just to
   print is a bit meh"*). The detour is gone; the engine stayed.
 - Loads from **`file://`** — `data:` URLs *hang* the web view (learned the hard way, exit
   124 with no error)
-- Must **explicitly set page size and margins** from the document's `@page` (see §2.1)
+
+### 7.1 `createPDF` does not paginate — this is the whole story
+
+**The single fact that shapes this file.** `WKWebView.createPDF(configuration:)` does not
+slice a document into pages. `cfg.rect` is not a viewport — it is **the page size of the
+output**. Ask for a tall region and you get *one tall piece of paper*, not several sheets.
+
+What was tried, and what actually happened, so nobody repeats it:
+
+| Attempt | Result |
+|---|---|
+| `cfg.rect` = A4, one page tall | 1 page; everything past it silently dropped |
+| `cfg.rect` = A4 wide, 4 pages tall | **one** 594mm-tall sheet, `/Count 1` |
+| `cfg.rect` = full page, full document height | **one** 594mm-tall sheet, `/Count 1` |
+| View frame 4 pages tall | no effect on page count or MediaBox |
+| `@media print { html, body { height:100vh } }` | no effect |
+| `NSPrintOperation` | 0 bytes — needs a window-server session, unusable headless |
+| paged.js polyfill | **blank page** — it moves the source into `.pagedjs_pages`, which
+the shim then measures as empty |
+
+The failure mode this creates is genuinely nasty: **a long document prints as one page,
+with the table and the footer missing, and nothing reports an error.** That is the exact
+"only page 1 prints" bug this project exists to kill, so it is worth the ~350 lines it
+costs to do it properly.
+
+### 7.2 So the shim paginates by hand
+
+Five steps, and the order matters:
+
+1. **Lay the document out inside the margin box.** The content column is a real inset, so
+   long lines and wide tables *wrap* instead of being sliced at the right paper edge.
+   The vertical margins live on `<body>`'s padding so they travel with the content.
+2. **Ask the DOM where every block starts and ends.** Tables are measured **row by row**
+   so a long table breaks *between* rows.
+3. **Greedily pack blocks into page-height buckets.** A block never straddles a page —
+   that is what stops a paragraph being sliced in half.
+4. **Translate the document up by each page's offset and rasterise exactly one page.**
+   Re-measuring with the offset applied (rather than assuming a plain shift) is what makes
+   the break positions exact when a break lands inside a margin.
+5. **Merge with PDFKit** — macOS's own PDF framework.
+
+**Why PDFKit for the merge:** a hand-written PDF concatenator was tried first and produced
+files that CoreGraphics *rejected* (it errored out and rendered nothing). PDFKit is native,
+already present, and keeps each page's own MediaBox. Merging is not a file format we should
+be re-implementing.
+
+**Verified output:** a document measuring 1149pt tall → `/Count 2`, MediaBox `595 841`
+(exactly A4), 30162 bytes, both pages reviewed by eye — page 1 carries the headings and
+nested lists, page 2 continues with the table. Nothing clipped, margins even.
+
+### 7.3 Source, not binary — and the sync trap
+
+Two copies of the Swift exist, and that is deliberate:
+
+- `src/platform/shim.swift` — the editable original. Open, read, change this one.
+- `src/platform/shim-source.ts` — the same text as a TS string. **This is what ships.**
+
+`npm run embed-shim` regenerates the second from the first. There is no bundler doing it
+automatically, so instead there is a test that **fails the moment the two drift apart** —
+because the alternative symptom is a stale converter that prints wrong paper.
+
+```bash
+npm run embed-shim                     # after every edit to shim.swift
+npm run extract-shim -- /tmp/check.swift   # prove the SHIPPED string compiles & runs
+```
+
+`extract-shim` exists for the same reason: the extension never runs `shim.swift`, it runs
+the embedded constant. That script imports the *compiled* constant, checks the escaping
+survived, and writes it out so it can be compiled and run on a real Mac. Verified this way:
+the emitted string compiles with
+`swiftc -o out in.swift -framework WebKit -framework AppKit -framework PDFKit`.
 
 **Why it can't be TypeScript:** the Node alternatives all mean shipping a browser. That's a
 ~150 MB dependency for a print button — against the fewest-dependencies rule. So this is the
@@ -245,8 +320,11 @@ Building on first run keeps the extension tiny and avoids shipping a binary we c
 notarise per architecture; it costs a few seconds once. **Recommendation: build on first
 run, cache it, and fail with one honest line if Xcode CLT is missing.**
 
-**Test coverage:** deliberately excluded from unit tests. Mocking WKWebView tests the mock.
-It's covered by the manual checklist in §9a instead.
+**Test coverage:** deliberately excluded from unit tests — mocking WKWebView tests the mock.
+What *is* tested is the seam that can rot silently: that the embedded source is in sync,
+that the pagination pass and the empty-render guard are still present, and that the build
+command links every framework the shim imports. The real rendering is covered by the manual
+checklist in §9a.
 
 
 ---
@@ -344,13 +422,45 @@ One fixture per line in §2, so every bug we paid for in paper has a test standi
    all** (so the printer's own default wins — see §4).
 4. **Unit — `detect()`.** Returns the platform class, given the test platform. This is the
    seam's own test: it proves a second class could be selected.
+5. **Unit — the shim seam** (`shim.test.ts`). The Swift itself can't run in CI, so what's
+   tested is the part that can rot in silence:
+
+   - the embedded source is **in sync** with `shim.swift` — the alternative symptom is a
+     stale converter printing wrong paper
+   - the **pagination pass is still there** (`measureBlocks`, the per-page `translateY`) —
+     "simplifying" it away silently restores the one-page bug
+   - the **empty-render guard** is still there — a blank sheet must never be a silent
+     success
+   - the `swiftc` command **links every framework the shim imports** (a missing
+     `-framework PDFKit` compiles fine in this repo and fails on a user's first print)
 
 ### Deliberately NOT unit-tested
 
-- **The Swift shim.** It's ~67 lines wrapping OS frameworks; mocking WKWebView tests the
-  mock. It's covered by the manual checklist instead.
+- **The Swift shim's actual rendering.** It wraps OS frameworks; mocking WKWebView tests the
+  mock. Note this is *rendering*, not pagination — the pagination logic is pure arithmetic
+  over measured block boxes and is the part that most deserves a test if the shim grows.
+  Its correctness is proven by eye and by the checklist below.
 - **Real printing.** Tests never send a job to a printer. Per the no-wasted-paper rule, a
   dry run answers everything a test could.
+
+### Proving the shim without printing paper
+
+`npm run extract-shim` pulls the **shipped** Swift back out of the compiled extension (a
+different artifact from `shim.swift` — see §7.3), so it can be compiled and run on a Mac
+without sending anything to a printer:
+
+```bash
+npm run build && npm run extract-shim -- /tmp/check.swift
+scp /tmp/check.swift mac:/tmp/
+ssh mac 'swiftc -o /tmp/check /tmp/check.swift -framework WebKit -framework AppKit \
+         -framework PDFKit && /tmp/check doc.html /tmp/out.pdf'
+# then assert on the page COUNT and the MediaBox — not just that a PDF appeared
+grep -a -o "/Count [0-9]*" /tmp/out.pdf      # page count
+sips -g pixelWidth -g pixelHeight /tmp/out.pdf   # 595 x 841 = A4
+```
+
+Checking that a PDF exists proves nothing — the whole bug class here is *a valid PDF with
+the wrong number of pages*. Always assert the count, then render to PNG and look at it.
 
 ### Manual checklist — the part CI can't prove
 
