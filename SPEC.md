@@ -351,18 +351,22 @@ checklist in §9a.
 
 Later steps must not require redoing earlier ones. Each step ends in something runnable.
 
-1. **Scaffold.** `yo code` TypeScript extension, VS Code engine + Cursor verified.
-   Ends: command appears in the palette and prints a line to the output channel.
-2. **Port the CSS.** `mdprint.css` → a TS string constant, verbatim. Ends: a snapshot test
-   asserting the `@page` block and the four print rules survive.
-3. **Port the renderer.** `mdprint.py` → TypeScript. Ends: **`npm test` green against the
-   golden HTML fixtures** (see §9a).
-4. **The platform interface + `MacPlatform`.** `detect()`, `listPrinters()`, `print()`,
-   `openPrintDialog()`, `PrintError`. Ends: `mdprint: Print` produces real paper.
-5. **Unsaved buffers.** Render from the live document, not disk. Ends: print a dirty buffer.
-6. **Options screen + settings.** QuickPick flow + global per-printer storage. Ends: choice
-   is remembered across restarts.
-7. **Dialog door.** `Print with options…`. Ends: PDF handed to the OS dialog.
+1. ✅ **Scaffold.** TypeScript extension + `tsconfig.json` + `.vscodeignore`. Engine:
+   `^1.85.0` — works in VS Code **and** Cursor.
+2. ✅ **Port the CSS.** `mdprint.css` → `src/css.ts`, verbatim. `css.test.ts` asserts the
+   `@page` block and the four earned rules survive.
+3. ✅ **Port the renderer.** → `src/renderer.ts`. **`npm test` green against the golden HTML
+   fixtures** (see §9a).
+4. ✅ **The platform interface + `MacPlatform`.** `detect()`, `listPrinters()`, `print()`,
+   `openPrintDialog()`, `PrintError`, plus the shim (§7). **Real paper produced** — job
+   `HP_SmartTank-7` completed 19:54:41 on 2026-09-22.
+5. ✅ **Unsaved buffers.** Renders from the live `TextDocument`, not disk, so `dirty === true`
+   is fine.
+6. ✅ **Options screen + settings.** QuickPick flow + global per-printer storage.
+7. ✅ **Dialog door.** `Print with options…` hands the PDF to the OS dialog.
+
+**Remaining for a genuine alpha tag:** the manual checklist in §9a on real paper, and the
+packaging step (`vsce package`) — neither has been done yet. Everything above is built.
 
 ---
 
