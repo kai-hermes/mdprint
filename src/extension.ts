@@ -28,13 +28,15 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 
 import { resolveDoc } from './document';
+import { chooseDestination } from './destination-choice';
+import { Destination } from './destination-rules';
 import { chooseDuplex } from './duplex-choice';
 import { detect, tryDetect } from './platform/detect';
 import { cleanup, htmlToPdf, sweepOldJobs, workDir } from './platform/pdf';
-import { PrintError, PrintSource } from './platform/types';
-import { choosePrinter } from './printer';
+import { PrintError, Printer, PrintSource } from './platform/types';
 import { Progress, silentProgress, Stage, withProgress } from './progress';
 import { buildHtml } from './renderer';
+import { announceSaved, savePdfAs } from './save-pdf';
 import { jobFor, rememberSettings, settingsFor } from './settings';
 import { openLiveTheme, resolveTheme, themeKeyFor } from './theme';
 
@@ -154,12 +156,40 @@ async function runPrint(
       return;
     }
 
-    // ---- the one-click door: straight to a queue ------------------------
-    progress.report('asking the printer');
+    // ---- where does this go? printer, or the filesystem ------------------
+    //
+    // Asked BEFORE any printer is resolved, which is the whole reason the
+    // "Save as PDF" row is reachable at all. Choosing the destination after
+    // picking a printer would hide the row on exactly the machines that need
+    // it: with one printer (or a remembered default) `pickPrinterOrSingle`
+    // returns early and no list is ever shown, and with zero printers it
+    // throws before a list could exist. See destination-rules.ts.
+    progress.report('asking where to send it');
     const list = await backend.listPrinters();
     const suggested = lastPrinter || (await backend.defaultPrinter());
 
-    const printer = await pickPrinterOrSingle(list, suggested);
+    const destination = await pickDestination(list, suggested);
+
+    // Backing out is not a failure. Nothing was rendered, so nothing to clean.
+    if (!destination) {
+      log('Cancelled at the destination step — nothing was printed.');
+      return;
+    }
+
+    if (destination.kind === 'pdf') {
+      progress.report('asking where to save it');
+      const outcome = await savePdfAs(rendered.pdfPath, rendered.name, rendered.dirty, log);
+      if (outcome) {
+        await announceSaved(outcome);
+      }
+      // cleanup() in the `finally` runs either way: unlike the dialog door, a
+      // saved file is a COPY the user owns, so the scratch PDF is now garbage
+      // and deleting it cannot pull the file out from under them.
+      return;
+    }
+
+    // ---- the one-click door: straight to a queue ------------------------
+    const printer = destination.printer;
 
     // ADVERTISING THE CAPABILITY (bug reported 2026-09-22: "Double sided was
     // also not advertised on any device despite it supporting it"). The parser
@@ -237,39 +267,45 @@ async function runPrint(
 }
 
 /**
- * Resolve the printer for the one-click path.
+ * Resolve the destination for the one-click path.
  *
- * Split out so the "ask, don't guess" order lives in printer.ts while the
- * list-vs-single shortcut stays visible here.
+ * THE RULE THAT CHANGED (this is the whole feature): the picker used to be
+ * skipped whenever the answer was already known — one printer, or a remembered
+ * default — and it *threw* when there were no printers at all. Both shortcuts
+ * assumed the only possible answer was a printer.
+ *
+ * Now there are two kinds of answer, so "unambiguous" no longer exists and the
+ * list is always shown. A machine with one printer still gets asked, because
+ * "Save as PDF" has to be reachable there too — and a machine with NO printers
+ * gets asked, because that is precisely where a PDF is the only way to get
+ * anything out at all.
+ *
+ * The remembered default is not lost by this: it's passed as the placeholder's
+ * subject, so the printer you use every day is still the top row in front of
+ * you. Being asked is the price of the extra destination, and it is one
+ * keystroke — Enter picks the first row, which is the remembered printer.
  */
-async function pickPrinterOrSingle(
-  list: { name: string; capabilities: { duplex: boolean } }[],
+async function pickDestination(
+  list: Printer[],
   suggested: string
-): Promise<string> {
-  if (list.length === 0) {
-    throw new PrintError(
-      "This machine doesn't have any printers set up. Add one in your system print " +
-        'settings, then try again.'
-    );
-  }
+): Promise<Destination | undefined> {
+  // `suggested` first, then the rest in OS order: the printer you printed to
+  // last time is row one, so the muscle memory of "Enter, Enter" still works.
+  const ordered = suggested
+    ? [
+        ...list.filter((p) => p.name === suggested),
+        ...list.filter((p) => p.name !== suggested),
+      ]
+    : list;
 
-  if (suggested) {
-    const match = list.find((p) => p.name === suggested || p.name.startsWith(suggested + '-'));
-    if (match) {
-      return match.name;
-    }
-  }
+  const placeholder =
+    list.length === 0
+      ? 'No printers set up \u2014 save as PDF instead'
+      : suggested
+        ? `Choose a destination (${suggested} last used)`
+        : 'Choose a destination';
 
-  if (list.length === 1) {
-    return list[0].name;
-  }
-
-  const backend = detect();
-  const chosen = await choosePrinter(backend, 'Which printer?');
-  if (!chosen) {
-    throw new PrintError('No printer chosen, so nothing was printed.');
-  }
-  return chosen;
+  return chooseDestination(ordered, placeholder);
 }
 
 /**
@@ -318,15 +354,20 @@ export function activate(context: vscode.ExtensionContext): void {
   register('mdprint.choosePrinter', async () => {
     try {
       const backend = detect();
-      const picked = await choosePrinter(backend, 'Choose the default printer');
-      if (!picked) {
+      const picked = await chooseDestination(await backend.listPrinters(), 'Choose the default printer');
+      // Picking "Save as PDF" here means the user has no printer they want to
+      // default to. That is a real answer, and it is NOT a reason to write the
+      // string "pdf" into `defaultPrinter` — leave the setting alone.
+      if (!picked || picked.kind !== 'printer') {
         return;
       }
       await vscode.workspace
         .getConfiguration('mdprint')
-        .update('defaultPrinter', picked, vscode.ConfigurationTarget.Global);
-      lastPrinter = picked;
-      void vscode.window.showInformationMessage(`mdprint will print to ${picked} by default.`);
+        .update('defaultPrinter', picked.printer, vscode.ConfigurationTarget.Global);
+      lastPrinter = picked.printer;
+      void vscode.window.showInformationMessage(
+        `mdprint will print to ${picked.printer} by default.`
+      );
     } catch (e) {
       reportFailure(e);
     }
@@ -350,35 +391,19 @@ export function activate(context: vscode.ExtensionContext): void {
 
   // "Save as PDF" — the honest answer on a machine that can't print yet, and
   // genuinely useful on one that can.
+  //
+  // The SAME `savePdfAs` the destination picker uses. Deliberately not a second
+  // implementation: this command and the picker row are the same act reached two
+  // ways, and two copies would drift — the inline version that used to live here
+  // silently overwrote an existing file, which `savePdfAs` refuses to do.
   register('mdprint.savePdf', async (uri) => {
     let rendered: Awaited<ReturnType<typeof renderDoc>> | undefined;
     try {
       rendered = await renderDoc(uri);
-
-      const target = await vscode.window.showSaveDialog({
-        title: 'Save as PDF',
-        defaultUri: vscode.Uri.file(
-          path.join(
-            path.dirname(rendered.pdfPath),
-            rendered.name.replace(/\.[^.]*$/, '') + '.pdf'
-          )
-        ),
-        filters: { PDF: ['pdf'] },
-      });
-
-      if (!target) {
-        return;
+      const outcome = await savePdfAs(rendered.pdfPath, rendered.name, rendered.dirty, log);
+      if (outcome) {
+        await announceSaved(outcome);
       }
-
-      const fs = await import('node:fs/promises');
-      await fs.copyFile(rendered.pdfPath, target.fsPath);
-      void vscode.window
-        .showInformationMessage(`Saved ${path.basename(target.fsPath)}`, 'Open')
-        .then((a) => {
-          if (a === 'Open') {
-            void vscode.env.openExternal(target);
-          }
-        });
     } catch (e) {
       reportFailure(e);
     } finally {

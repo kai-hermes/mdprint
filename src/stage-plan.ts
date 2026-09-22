@@ -35,8 +35,10 @@ export const STAGES = [
   'applying the template',
   'building the PDF converter (first run only)',
   'laying out the pages',
+  'asking where to send it',
   'asking the printer',
   'checking what this printer can do',
+  'asking where to save it',
   'handing the PDF to the print dialog',
 ] as const;
 

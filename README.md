@@ -100,6 +100,16 @@ the Command Palette (when a markdown file is active):
 - **mdprint: Choose printer for this document…** — pick a printer without printing.
 - **mdprint: Save as PDF…** — no printer involved. Useful for checking layout.
 
+**The printer list includes "Save as PDF…".** When mdprint asks where the document
+should go, the PDF row is one of the answers — so you can render a document you're
+happy with and keep it, without a printer being involved at all. It appears whether or
+not you have any printers, which is the point: the machine with no printer is the one
+that most wants a PDF.
+
+Choosing it opens a save dialog with the PDF already written, so the file you get is
+byte-for-byte what would have been printed. Picking a name that already exists asks
+before replacing it rather than overwriting in silence.
+
 **Unsaved buffers work.** Press it with unsaved edits and it prints what's on screen,
 not what's on disk.
 
@@ -159,7 +169,7 @@ it's configured to do.
 npm test
 ```
 
-Runs the build, then 115 tests across eight layers:
+Runs the build, then 139 tests across ten layers:
 
 | Layer | File | What it protects |
 |---|---|---|
@@ -168,6 +178,8 @@ Runs the build, then 115 tests across eight layers:
 | Job → argv | `printjob.test.ts` | That an unset duplex produces **no** `sides` flag, so printer defaults survive. |
 | Capability parsing | `duplex.test.ts` | That `Duplex/Duplex: *None …` is read as the **Duplex** option, not ignored. Run against real recorded printer output. |
 | Capability advertising | `duplexPicker.test.ts` | That a detected capability actually reaches a picker. Detecting is not advertising. |
+| Destination rules | `destination.test.ts` | That the list is always shown, that **Save as PDF** is in it on a machine with no printers, and that a printer named "Save as PDF" can never collide with the PDF row. |
+| Wiring | `wiring.test.ts` | That choosing the PDF row actually calls the save step. Resolving to `{kind:'pdf'}` and doing nothing is not saving. |
 | Progress | `progress.test.ts` | That the bar advances, only forwards, and never reports full while work continues. |
 | Platform seam | `detect.test.ts`, `doors.test.ts` | Backend detection picks the right class, and every backend capability is reachable from a registered command. |
 | Build integrity | `shim.test.ts`, `packaging.test.ts`, `workdir.test.ts` | The embedded native source matches its original, test byproducts never ship, and the scratch dir exists before anything writes to it. |
@@ -329,7 +341,7 @@ in one plain-English sentence, so silence means something upstream of mdprint.
 
 ```
 src/
-  extension.ts        activation + the four commands
+  extension.ts        activation + the five commands
   document.ts         getting the text (dirty buffer or file)
   renderer.ts         markdown -> styled HTML
   css.ts              the print stylesheet

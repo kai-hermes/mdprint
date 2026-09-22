@@ -81,7 +81,7 @@ test('a command that prints never falls back into the dialog door', () => {
 
   const printFn = source.slice(
     source.indexOf('async function printCommand'),
-    source.indexOf('async function pickPrinterOrSingle')
+    source.indexOf('async function pickDestination')
   );
   assert.ok(printFn.length > 0, 'printCommand should be findable');
 
@@ -98,7 +98,7 @@ test('both doors render through the one shared render step', () => {
   const source = extensionSource();
   const printFn = source.slice(
     source.indexOf('async function printCommand'),
-    source.indexOf('async function pickPrinterOrSingle')
+    source.indexOf('async function pickDestination')
   );
 
   const calls = printFn.match(/await renderDoc\(/g) ?? [];
