@@ -135,5 +135,13 @@
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.85.0",
     "typescript": "^5.5.0"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kai-hermes/mdprint.git"
+  },
+  "bugs": {
+    "url": "https://github.com/kai-hermes/mdprint/issues"
+  },
+  "homepage": "https://github.com/kai-hermes/mdprint#readme"
 }

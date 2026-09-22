@@ -3,6 +3,13 @@ src/**
 poc-reference/**
 test/**
 out/test/**
+.actual/**
+
+# Source maps and build config are not needed at install time -- the extension
+# host runs the compiled JS in out/.
 **/*.map
 tsconfig.json
 .gitignore
+
+# The packaged .vsix itself, if one is sitting in the working tree.
+*.vsix
