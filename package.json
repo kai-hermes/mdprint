@@ -186,11 +186,11 @@
   "scripts": {
     "build": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "npm run build && node --test \"out/test/**/*.test.js\"",
+    "test": "npm run build && node --test out/test",
     "lint": "tsc -p ./ --noEmit",
     "vscode:prepublish": "npm run build",
     "embed-shim": "node scripts/embed-shim.mjs",
-    "test:watch": "tsc -w -p ./ & node --test --watch \"out/test/**/*.test.js\"",
+    "test:watch": "tsc -w -p ./ & node --test --watch out/test",
     "extract-shim": "node scripts/extract-shim.mjs",
     "prepare": "node scripts/install-hooks.mjs",
     "check-commits": "node scripts/commit-msg-hook.mjs --check-range"
