@@ -2,7 +2,7 @@
   "name": "mdprint",
   "displayName": "mdprint",
   "description": "Markdown to paper, one click. Right-click a .md, get a properly typeset A4 sheet. No browser, no preview, no detour.",
-  "version": "0.0.1",
+  "version": "0.1.0",
   "publisher": "kai-hermes",
   "license": "MIT",
   "engines": {
@@ -29,27 +29,27 @@
       },
       {
         "command": "mdprint.printWithDialog",
-        "title": "Print with dialog\u2026",
+        "title": "Print with dialog…",
         "category": "mdprint"
       },
       {
         "command": "mdprint.customise",
-        "title": "Customise template for this item\u2026",
+        "title": "Customise template for this item…",
         "category": "mdprint"
       },
       {
         "command": "mdprint.customiseShell",
-        "title": "Customise structure for this item\u2026",
+        "title": "Customise structure for this item…",
         "category": "mdprint"
       },
       {
         "command": "mdprint.choosePrinter",
-        "title": "Choose printer for this document\u2026",
+        "title": "Choose printer for this document…",
         "category": "mdprint"
       },
       {
         "command": "mdprint.savePdf",
-        "title": "Save as PDF\u2026",
+        "title": "Save as PDF…",
         "category": "mdprint"
       }
     ],
@@ -138,7 +138,7 @@
           "type": "object",
           "default": {},
           "scope": "window",
-          "markdownDescription": "Remembered print settings, keyed by printer name. Written by mdprint itself \u2014 a saved setting is a *default, never a lock*.",
+          "markdownDescription": "Remembered print settings, keyed by printer name. Written by mdprint itself — a saved setting is a *default, never a lock*.",
           "additionalProperties": {
             "type": "object",
             "properties": {
@@ -166,19 +166,19 @@
           "type": "string",
           "default": "",
           "scope": "resource",
-          "markdownDescription": "Inline CSS for quick experiments, stacked after `mdprint.themeFile`. Priority: built-in \u2192 themeFile \u2192 `<document>.mdprint.css` \u2192 this \u2192 a live unsaved template from **mdprint: Customise template for this item**."
+          "markdownDescription": "Inline CSS for quick experiments, stacked after `mdprint.themeFile`. Priority: built-in → themeFile → `<document>.mdprint.css` → this → a live unsaved template from **mdprint: Customise template for this item**."
         },
         "mdprint.shellFile": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "markdownDescription": "Absolute path to a workspace-wide HTML shell \u2014 the structural layout (cover page, table of contents, repositioned header/footer) a document is assembled into. A per-item shell (`<document>.mdprint.shell.html`) wins over this. Unlike CSS layers, shells do not stack: the narrowest one present and valid wins outright."
+          "markdownDescription": "Absolute path to a workspace-wide HTML shell — the structural layout (cover page, table of contents, repositioned header/footer) a document is assembled into. A per-item shell (`<document>.mdprint.shell.html`) wins over this. Unlike CSS layers, shells do not stack: the narrowest one present and valid wins outright."
         },
         "mdprint.shell": {
           "type": "string",
           "default": "",
           "scope": "resource",
-          "markdownDescription": "Inline HTML shell for quick experiments \u2014 wins over `mdprint.shellFile` and `<document>.mdprint.shell.html`, loses to a live unsaved shell from **mdprint: Customise structure for this item**. Must contain `{{mdprint:content}}` or it is refused."
+          "markdownDescription": "Inline HTML shell for quick experiments — wins over `mdprint.shellFile` and `<document>.mdprint.shell.html`, loses to a live unsaved shell from **mdprint: Customise structure for this item**. Must contain `{{mdprint:content}}` or it is refused."
         }
       }
     }
