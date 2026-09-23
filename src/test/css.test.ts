@@ -89,9 +89,22 @@ test('self-contained: no external font, image, or stylesheet references', () => 
   assert.ok(!/@import/i.test(CSS), 'stylesheet imports another stylesheet');
 });
 
-test('odds and evens get roomier inner margins for stapling', () => {
-  assert.match(CSS, /@page\s*:left/, 'no @page :left rule');
-  assert.match(CSS, /@page\s*:right/, 'no @page :right rule');
+test('there is exactly one @page block, not a :left/:right/:first split the shim cannot honour', () => {
+  // The Swift shim (see shim.swift's @page-parsing comment) reads every
+  // @page block it finds in file order and lets a later declaration win —
+  // it has no concept of facing pages or a first-page exception, so a
+  // `@page :left { margin-left:20mm }` / `@page :right { margin-right:20mm }`
+  // split doesn't produce roomier inner margins for stapling: it silently
+  // blends into one set of margins that matches neither side. A single
+  // block is the only version of this stylesheet that says what actually
+  // happens when the shim reads it.
+  const pageBlocks = CSS.match(/@page[^{]*\{/g) ?? [];
+  assert.equal(pageBlocks.length, 1, `expected exactly one @page block, found ${pageBlocks.length}`);
+  assert.doesNotMatch(
+    CSS,
+    /@page\s*:(left|right|first)/,
+    'a @page pseudo-class split reappeared — the shim cannot honour it, see the note above @page in css.ts'
+  );
 });
 
 test('the footer is fixed-position so it lands on every page', () => {

@@ -76,6 +76,9 @@ const INLINE: InlineRule[] = [
   [/~~(.+?)~~/g, '<del>$1</del>'],
   [/==(.+?)==/g, '<mark>$1</mark>'],
   [/<(https?:\/\/[^>\s]+)>/g, '<a href="$1">$1</a>'],
+  // Images before links: both use [text](url), and an image's leading `!`
+  // would otherwise be left dangling in front of a rendered <a> link.
+  [/!\[([^\]]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1">'],
   [/\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2">$1</a>'],
 ];
 
@@ -385,9 +388,14 @@ export function buildHtml(mdText: string, srcName: string, options: RenderOption
   const opensWithH1 = /^\s*<h1[ >]/.test(content);
   const titleHeading = opensWithH1 ? '' : `<h1>${escapeHtml(title, true)}</h1>\n`;
 
+  // .pf-page is left empty here — only the Swift shim, at capture time, knows
+  // which page number a given sheet is and how many there are in total (see
+  // shim.swift's positionFooterJs). On screen (the live template-customise
+  // preview) it just renders as a harmless empty span.
   const footer =
     '<div class="page-footer">' +
     `<span>${escapeHtml(title, true)}</span>` +
+    '<span class="pf-page"></span>' +
     `<span class="pf-right">${escapeHtml(srcName, true)} &middot; ${escapeHtml(when, true)}</span>` +
     '</div>';
 
