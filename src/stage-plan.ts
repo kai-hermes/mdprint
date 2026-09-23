@@ -33,6 +33,7 @@
 export const STAGES = [
   'collecting what you see in the editor',
   'applying the template',
+  'applying the layout template',
   'building the PDF converter (first run only)',
   'laying out the pages',
   'asking where to send it',

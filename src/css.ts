@@ -378,4 +378,14 @@ img{max-width:100%;height:auto;break-inside:avoid;border-radius:3px;}
   right:0;
   text-align:center;
 }
+
+/* ============================================================
+   6. Table of contents — only present when a structural shell asks
+   for {{mdprint:toc}} (see shell-template.ts). Purely additive: a
+   document with no shell in play never emits this class.
+   ============================================================ */
+.mdprint-toc,.mdprint-toc ul{list-style:none;margin:0;padding-left:1.1em;}
+.mdprint-toc{padding-left:0;}
+.mdprint-toc a{color:var(--ink);text-decoration:none;}
+.mdprint-toc a:hover{text-decoration:underline;}
 `;

@@ -5,6 +5,13 @@ test/**
 out/test/**
 .actual/**
 
+# Dev/CI tooling — never needed at install time, and none of it belongs in a
+# package a user installs into their editor.
+scripts/**
+.github/**
+release-please-config.json
+.release-please-manifest.json
+
 # Source maps and build config are not needed at install time -- the extension
 # host runs the compiled JS in out/.
 **/*.map

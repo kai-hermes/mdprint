@@ -12,6 +12,7 @@
  */
 
 import { PRINT_CSS } from './css';
+import { DEFAULT_SHELL, applyTokens } from './shell-template';
 
 // ---------------------------------------------------------------- frontmatter
 
@@ -336,6 +337,107 @@ export function renderBlocks(body: string): string {
   return out.join('\n');
 }
 
+// ---------------------------------------------------------------- table of contents
+
+export interface Heading {
+  level: number;
+  text: string;
+  slug: string;
+}
+
+function slugify(text: string, used: Set<string>): string {
+  const plain = text
+    .replace(/<[^>]+>/g, '')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&#x27;/g, "'");
+
+  let slug = plain
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  if (!slug) {
+    slug = 'section';
+  }
+
+  if (!used.has(slug)) {
+    used.add(slug);
+    return slug;
+  }
+  let n = 2;
+  while (used.has(`${slug}-${n}`)) {
+    n += 1;
+  }
+  const unique = `${slug}-${n}`;
+  used.add(unique);
+  return unique;
+}
+
+/**
+ * Add `id`s to h1-h3 headings and return them in document order, for a
+ * table-of-contents shell to link to.
+ *
+ * Only ever called when a shell actually contains `{{mdprint:toc}}` (see
+ * `buildHtml`) — the default render path never touches heading markup, which
+ * is what keeps every golden fixture byte-identical when no shell is in play.
+ * h4-h6 are left alone: that depth reads as noise on a printed contents page.
+ */
+export function addHeadingIds(html: string): { html: string; headings: Heading[] } {
+  const used = new Set<string>();
+  const headings: Heading[] = [];
+
+  const out = html.replace(/<h([1-3])>(.*?)<\/h\1>/g, (_m, lvl: string, inner: string) => {
+    const level = Number(lvl);
+    const slug = slugify(inner, used);
+    headings.push({ level, text: inner, slug });
+    return `<h${level} id="${slug}">${inner}</h${level}>`;
+  });
+
+  return { html: out, headings };
+}
+
+/**
+ * A nested `<ul class="mdprint-toc">` from a flat, document-ordered heading
+ * list. `stack` holds one entry per currently open `<ul>`, valued at the
+ * heading level that list holds items for — deeper levels are pushed/popped
+ * as headings get nested or return to a shallower level, exactly like
+ * `renderBlocks`'s list-indent stack.
+ */
+export function renderToc(headings: Heading[]): string {
+  if (headings.length === 0) {
+    return '';
+  }
+
+  const out: string[] = [];
+  const stack: number[] = [];
+
+  for (const h of headings) {
+    if (stack.length === 0) {
+      out.push('<ul class="mdprint-toc">');
+      stack.push(h.level);
+    } else if (h.level > stack[stack.length - 1]) {
+      out.push('<ul>');
+      stack.push(h.level);
+    } else {
+      while (stack.length > 1 && stack[stack.length - 1] > h.level) {
+        out.push('</li>', '</ul>');
+        stack.pop();
+      }
+      out.push('</li>');
+    }
+    out.push(`<li><a href="#${h.slug}">${h.text}</a>`);
+  }
+
+  while (stack.length > 0) {
+    out.push('</li>', '</ul>');
+    stack.pop();
+  }
+
+  return out.join('\n');
+}
+
 // ---------------------------------------------------------------- assemble
 
 /** `my-notes_v2.md` -> `my notes v2` — the title fallback when there's no frontmatter. */
@@ -358,6 +460,14 @@ export interface RenderOptions {
   now?: Date;
   /** Override the stylesheet. Tests use this to prove it is actually wired in. */
   css?: string;
+  /**
+   * Override the structural shell — a pre-resolved, pre-validated shell body
+   * from `shell-template.ts`'s `resolveShell()`. Not re-validated here, same
+   * trust boundary as `css` above. Defaults to `DEFAULT_SHELL`, which is
+   * built so that substituting its tokens reproduces this function's own
+   * historical output byte-for-byte — see the note above the assembly below.
+   */
+  shell?: string;
 }
 
 export function buildHtml(mdText: string, srcName: string, options: RenderOptions = {}): string {
@@ -391,13 +501,43 @@ export function buildHtml(mdText: string, srcName: string, options: RenderOption
   // .pf-page is left empty here — only the Swift shim, at capture time, knows
   // which page number a given sheet is and how many there are in total (see
   // shim.swift's positionFooterJs). On screen (the live template-customise
-  // preview) it just renders as a harmless empty span.
+  // preview) it just renders as a harmless empty span. positionFooterJs finds
+  // this by class name alone (`.page-footer`, then `.pf-page` inside it), so a
+  // shell is free to reposition this block anywhere in the document.
   const footer =
     '<div class="page-footer">' +
     `<span>${escapeHtml(title, true)}</span>` +
     '<span class="pf-page"></span>' +
     `<span class="pf-right">${escapeHtml(srcName, true)} &middot; ${escapeHtml(when, true)}</span>` +
     '</div>';
+
+  // The structural shell. `wantsToc` gates the ONLY place `content` can differ
+  // from what this function has always produced: heading ids/TOC generation
+  // never runs unless a shell explicitly asks for `{{mdprint:toc}}`.
+  const shellTemplate = options.shell ?? DEFAULT_SHELL;
+  const wantsToc = shellTemplate.includes('{{mdprint:toc}}');
+  let toc = '';
+  if (wantsToc) {
+    const withIds = addHeadingIds(content);
+    content = withIds.html;
+    toc = renderToc(withIds.headings);
+  }
+
+  // Byte-identical to this function's historical output when `options.shell`
+  // is unset: DEFAULT_SHELL only references {{mdprint:header}}, {{content}}
+  // and {{footer}}, so substituting it reproduces exactly
+  // `<main>\n${titleHeading}${content}\n</main>\n${footer}` — the same
+  // segment this function always emitted, splicing into the unchanged outer
+  // skeleton below.
+  const { html: bodyHtml } = applyTokens(shellTemplate, {
+    title: escapeHtml(title, true),
+    filename: escapeHtml(srcName, true),
+    date: escapeHtml(when, true),
+    header: titleHeading,
+    content,
+    footer,
+    toc,
+  });
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -410,10 +550,7 @@ ${css}
 </style>
 </head>
 <body>
-<main>
-${titleHeading}${content}
-</main>
-${footer}
+${bodyHtml}
 </body>
 </html>
 `;

@@ -38,6 +38,7 @@ import { Progress, silentProgress, Stage, withProgress } from './progress';
 import { buildHtml } from './renderer';
 import { announceSaved, savePdfAs } from './save-pdf';
 import { jobFor, rememberSettings, settingsFor } from './settings';
+import { openLiveShell, resolveShellForDoc } from './shell';
 import { openLiveTheme, resolveTheme, themeKeyFor } from './theme';
 
 let output: vscode.OutputChannel;
@@ -71,7 +72,12 @@ async function renderDoc(
   progress.report('applying the template');
   const theme = await resolveTheme(doc.filePath, doc.fileName, log);
 
-  const html = buildHtml(doc.text, doc.fileName, { css: theme.css });
+  // Per-item structure: which shell arranges cover/header/content/toc/footer.
+  // A separate axis from the stylesheet above — see shell-template.ts.
+  progress.report('applying the layout template');
+  const shell = await resolveShellForDoc(doc.filePath, doc.fileName, log);
+
+  const html = buildHtml(doc.text, doc.fileName, { css: theme.css, shell: shell.html });
   const pdfPath = await htmlToPdf(html, doc.label, log, (stage) =>
     progress.report(stage as Stage)
   );
@@ -400,6 +406,19 @@ export function activate(context: vscode.ExtensionContext): void {
       const doc = await resolveDoc(uri);
       const key = themeKeyFor(doc.filePath, doc.fileName);
       await openLiveTheme(key, doc.fileName, doc.filePath, log);
+    } catch (e) {
+      reportFailure(e);
+    }
+  });
+
+  // "Customise the structure for this item" — the shell door, a sibling to
+  // mdprint.customise (restyle) rather than folded into it: the two answer
+  // different questions, and this keeps the fast CSS-only loop above fast.
+  register('mdprint.customiseShell', async (uri) => {
+    try {
+      const doc = await resolveDoc(uri);
+      const key = themeKeyFor(doc.filePath, doc.fileName);
+      await openLiveShell(key, doc.fileName, doc.filePath, log);
     } catch (e) {
       reportFailure(e);
     }

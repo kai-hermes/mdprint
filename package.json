@@ -38,6 +38,11 @@
         "category": "mdprint"
       },
       {
+        "command": "mdprint.customiseShell",
+        "title": "Customise structure for this item\u2026",
+        "category": "mdprint"
+      },
+      {
         "command": "mdprint.choosePrinter",
         "title": "Choose printer for this document\u2026",
         "category": "mdprint"
@@ -64,6 +69,11 @@
           "command": "mdprint.customise",
           "when": "resourceExtname == .md",
           "group": "mdprint@3"
+        },
+        {
+          "command": "mdprint.customiseShell",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@4"
         }
       ],
       "editor/title/context": [
@@ -81,6 +91,11 @@
           "command": "mdprint.customise",
           "when": "resourceExtname == .md",
           "group": "mdprint@3"
+        },
+        {
+          "command": "mdprint.customiseShell",
+          "when": "resourceExtname == .md",
+          "group": "mdprint@4"
         }
       ],
       "commandPalette": [
@@ -98,6 +113,10 @@
         },
         {
           "command": "mdprint.customise",
+          "when": "editorLangId == markdown"
+        },
+        {
+          "command": "mdprint.customiseShell",
           "when": "editorLangId == markdown"
         },
         {
@@ -148,6 +167,18 @@
           "default": "",
           "scope": "resource",
           "markdownDescription": "Inline CSS for quick experiments, stacked after `mdprint.themeFile`. Priority: built-in \u2192 themeFile \u2192 `<document>.mdprint.css` \u2192 this \u2192 a live unsaved template from **mdprint: Customise template for this item**."
+        },
+        "mdprint.shellFile": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Absolute path to a workspace-wide HTML shell \u2014 the structural layout (cover page, table of contents, repositioned header/footer) a document is assembled into. A per-item shell (`<document>.mdprint.shell.html`) wins over this. Unlike CSS layers, shells do not stack: the narrowest one present and valid wins outright."
+        },
+        "mdprint.shell": {
+          "type": "string",
+          "default": "",
+          "scope": "resource",
+          "markdownDescription": "Inline HTML shell for quick experiments \u2014 wins over `mdprint.shellFile` and `<document>.mdprint.shell.html`, loses to a live unsaved shell from **mdprint: Customise structure for this item**. Must contain `{{mdprint:content}}` or it is refused."
         }
       }
     }
@@ -160,11 +191,14 @@
     "vscode:prepublish": "npm run build",
     "embed-shim": "node scripts/embed-shim.mjs",
     "test:watch": "tsc -w -p ./ & node --test --watch \"out/test/**/*.test.js\"",
-    "extract-shim": "node scripts/extract-shim.mjs"
+    "extract-shim": "node scripts/extract-shim.mjs",
+    "prepare": "node scripts/install-hooks.mjs",
+    "check-commits": "node scripts/commit-msg-hook.mjs --check-range"
   },
   "devDependencies": {
     "@types/node": "^20.14.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^4.0.0",
     "typescript": "^5.5.0"
   },
   "repository": {

@@ -88,7 +88,7 @@ survives restarts and only rebuilds if that source actually changes.
 
 ## Use
 
-Five commands, available from the Explorer right-click, the editor tab right-click, and
+Six commands, available from the Explorer right-click, the editor tab right-click, and
 the Command Palette (when a markdown file is active):
 
 - **mdprint: Print** — render, then ask which printer and which sides, then print. One
@@ -97,6 +97,10 @@ the Command Palette (when a markdown file is active):
   dialog. Every driver option mdprint deliberately refuses to model lives in there.
 - **mdprint: Customise template for this item…** — open a live stylesheet for the
   document you're looking at. What you see is what prints.
+- **mdprint: Customise structure for this item…** — open a live HTML shell for the
+  document, to rearrange the printed page (a cover page, a table of contents,
+  repositioning the header/footer) rather than just restyle it. See
+  [Structural shells](#structural-shells).
 - **mdprint: Choose printer for this document…** — pick a printer without printing.
 - **mdprint: Save as PDF…** — no printer involved. Useful for checking layout.
 
@@ -156,6 +160,60 @@ built-in  →  mdprint.themeFile  →  <doc>.mdprint.css  →  mdprint.theme  �
 Nothing needs rebuilding, repackaging or reinstalling to change how a document
 looks — edit a file, or open the live buffer, and print again.
 
+### Structural shells
+
+A template restyles what mdprint renders; a **shell** decides what's on the page at
+all — a cover, a table of contents, where the header and footer sit. It's a small HTML
+skeleton with named regions, substituted at print time:
+
+```
+built-in  →  mdprint.shellFile  →  <doc>.mdprint.shell.html  →  mdprint.shell  →  live buffer
+  widest  ────────────────────────────────────────────────────────────────────▶  narrowest
+```
+
+**Last VALID one wins — unlike CSS layers, shells do not stack.** Concatenating two
+competing arrangements of the page makes no sense the way concatenating two stylesheets
+does, so the narrowest layer that's actually present replaces the built-in shell
+outright, rather than piling on top of it. A layer that's present but broken (see the
+guard rail below) is skipped, with a warning, in favour of the next-widest one — it never
+silently blocks a wider layer that would have worked.
+
+| Token | Resolves to |
+|---|---|
+| `{{mdprint:title}}` | The document's title, escaped. |
+| `{{mdprint:filename}}` | The source file's name, escaped. |
+| `{{mdprint:date}}` | The print date, formatted the same way the built-in footer shows it. |
+| `{{mdprint:header}}` | The title heading — empty if the document already opens with its own `# H1`. |
+| `{{mdprint:content}}` | The rendered document. **Required** — see below. |
+| `{{mdprint:footer}}` | The running footer (title, page number, filename + date). |
+| `{{mdprint:toc}}` | A generated table of contents from the document's h1–h3 headings, nested and linked. Empty unless this token is present — building it (and the heading `id`s it links to) is skipped entirely otherwise, so a document with no shell never carries extra markup. |
+
+**`{{mdprint:content}}` is required.** A shell missing it has nowhere to put the
+document, so it's refused outright and mdprint falls back to the next layer, logged to
+the output channel — never a page with the document silently missing.
+
+There's no dedicated cover-page token: a cover is just static HTML you write directly
+into your shell, using `title`/`filename`/`date` for the parts that change per document —
+for example:
+
+```html
+<section class="cover">
+  <h1>{{mdprint:title}}</h1>
+  <p>{{mdprint:filename}} &middot; {{mdprint:date}}</p>
+</section>
+{{mdprint:toc}}
+<main>{{mdprint:header}}{{mdprint:content}}</main>
+{{mdprint:footer}}
+```
+
+- **`mdprint.shellFile`** — one shell for the whole workspace.
+- **`<doc>.mdprint.shell.html`** beside the file — this item's own shell, and it
+  **wins over `shellFile`**.
+- **`mdprint.shell`** — inline HTML from settings, for quick experiments.
+- **The live buffer** — *Customise structure for this item…* opens an unsaved HTML
+  scratchpad, seeded from this item's shell if it has one. Print uses it as you type;
+  close it and it's gone.
+
 ### Settings
 
 A saved setting is a **default, never a lock**. These exist:
@@ -167,6 +225,10 @@ A saved setting is a **default, never a lock**. These exist:
   `<doc>.mdprint.css` stacks after it and wins.
 - `mdprint.theme` — inline CSS for experiments, or empty for none. Sits on top of the
   file layers; the live template buffer still beats it.
+- `mdprint.shellFile` — a workspace-wide structural shell, or empty for none. An item's
+  own `<doc>.mdprint.shell.html` wins over it outright (shells replace, they don't stack).
+- `mdprint.shell` — inline HTML shell for experiments, or empty for none. Wins over
+  `shellFile` and the sibling file; the live shell buffer still beats it.
 
 They're global, not per-workspace, because a printer is a device attached to the
 machine rather than a property of a project.
@@ -182,7 +244,7 @@ it's configured to do.
 npm test
 ```
 
-Runs the build, then 151 tests across thirteen layers:
+Runs the build, then 172 tests across fifteen layers:
 
 | Layer | File | What it protects |
 |---|---|---|
@@ -190,6 +252,8 @@ Runs the build, then 151 tests across thirteen layers:
 | Golden fixtures | `renderer.test.ts` | 7 markdown files → 7 known-good HTML outputs. One per bug that cost real time. |
 | CSS invariants | `css.test.ts` | The print rules that stop silent truncation — wrapping, margins, page size. |
 | Template precedence | `theme.test.ts` | That the layers stack in order — built-in → workspace file → `<doc>.mdprint.css` → setting → live buffer — and that the user's template always wins, including over the built-in. Also that a template can never change the **paper size**. |
+| Structural shell precedence | `shell-template.test.ts` | That shell layers **replace** rather than stack — only the narrowest present, valid one applies — and that a shell missing `{{mdprint:content}}` is refused and falls through, never silently blocking a wider layer that would have worked. |
+| Table of contents | `toc.test.ts` | That heading ids and the generated TOC are strictly opt-in, gated behind a shell actually using `{{mdprint:toc}}` — proved by rendering the same document with and without one and asserting the outputs differ only there. |
 | Job → argv | `printjob.test.ts` | That an unset duplex produces **no** `sides` flag, so printer defaults survive. |
 | Capability parsing | `duplex.test.ts` | That `Duplex/Duplex: *None …` is read as the **Duplex** option, not ignored. Run against real recorded printer output. |
 | Capability advertising | `duplexPicker.test.ts` | That a detected capability actually reaches a picker. Detecting is not advertising. |
@@ -380,3 +444,37 @@ poc-reference/        the Python proof of concept. Reference only, never shipped
 ```
 
 See [SPEC.md](SPEC.md) for the decisions and the reasoning behind them.
+
+---
+
+## Contributing
+
+Commits follow [Conventional Commits](https://www.conventionalcommits.org/):
+`<type>(<scope>)!: <subject>`, where `<type>` is one of `feat`, `fix`, `docs`, `style`,
+`refactor`, `perf`, `test`, `build`, `ci`, `chore`, `revert`. A breaking change adds `!`
+right after the type/scope (`feat!: …`) or a `BREAKING CHANGE:` footer.
+
+This isn't just style: [release-please](https://github.com/googleapis/release-please)
+reads it to decide the next version and to write `CHANGELOG.md`. A commit outside the
+convention is invisible to it — it still lands, it just silently doesn't count towards a
+release.
+
+`npm install` installs a `commit-msg` git hook (`scripts/install-hooks.mjs`) that checks
+your subject line before the commit is made. `npm run check-commits` runs the same check
+by hand over a range of commits; CI (`lint-commits` in `ci.yml`) runs it again on every
+pull request, in case the hook was skipped or a clone predates it.
+
+## Releases
+
+Merging a conventional commit to `main` feeds `release-please.yml`, which keeps a
+standing "chore(main): release X.Y.Z" pull request up to date with the accumulated
+changelog and version bump. Merging *that* PR is what actually cuts a release: it tags
+the commit and creates a GitHub Release, which triggers a second job that runs the full
+test suite, packages the extension, and attaches the resulting `.vsix` to the release —
+the same file `npm run build` + `npx @vscode/vsce package` would produce locally, just
+test-gated and versioned for you.
+
+**Every pull request also gets its own preview build.** `pr-preview.yml` packages a
+`.vsix` on every push to the PR and comments a link to the workflow run where it's
+attached as a downloadable artifact — install it via **Extensions → ⋯ → Install from
+VSIX…** to try the change before it merges, no local build required.

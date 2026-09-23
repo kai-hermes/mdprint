@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    # macos-latest, not ubuntu, so this runs on the same platform the Swift
+    # shim ships for — even though today's tests only diff the embedded shim
+    # source against shim.swift rather than invoking swiftc.
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm test
+
+  lint-commits:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: node scripts/commit-msg-hook.mjs --check-range "origin/${{ github.base_ref }}..HEAD"
